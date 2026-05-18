@@ -116,6 +116,9 @@ audit:
     - status_repos
     - git_watcher
 
+detectors:
+  - module: ".custodian/detectors.py:build_oc_detectors"
+
 tools:
   ruff: true
   vulture: true
