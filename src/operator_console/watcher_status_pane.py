@@ -1334,12 +1334,12 @@ def _draw_main(
     bottom_secs = _bottom_sections(data, C)
 
     def _decorate(sec: dict) -> None:
-        """Add ▶/▼ collapse marker + focus highlight to a section header."""
+        """Add ▸/▾ collapse marker + focus highlight to a section header."""
         if not sec["lines"]:
             return
         text, attr = sec["lines"][0]
         is_collapsed = collapsed.get(sec["id"], False)
-        marker = "▶ " if is_collapsed else "▼ "
+        marker = "▸ " if is_collapsed else "▾ "
         new_text = marker + text.lstrip()
         if focused_section == sec["id"]:
             new_text += "  ← Focused"
@@ -1593,32 +1593,29 @@ def _pane(stdscr, profile_name: str) -> None:
     curses.curs_set(0)
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_GREEN,  -1)
-    curses.init_pair(2, curses.COLOR_WHITE,  -1)
-    curses.init_pair(3, curses.COLOR_CYAN,   -1)
-    curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_WHITE)
-    curses.init_pair(5, curses.COLOR_YELLOW, -1)
-    curses.init_pair(6, curses.COLOR_RED,    -1)
+    curses.init_pair(1, curses.COLOR_BLACK,  curses.COLOR_WHITE)
+    curses.init_pair(2, curses.COLOR_GREEN,  -1)
+    curses.init_pair(3, curses.COLOR_YELLOW, -1)
+    curses.init_pair(4, curses.COLOR_RED,    -1)
+    curses.init_pair(5, curses.COLOR_WHITE,  -1)
     # Banner pairs — explicit white-on-color for the marquee banners.
-    curses.init_pair(7,  curses.COLOR_WHITE, curses.COLOR_RED)     # CRITICAL
-    curses.init_pair(8,  curses.COLOR_WHITE, curses.COLOR_YELLOW)  # WARNING
-    curses.init_pair(9,  curses.COLOR_WHITE, curses.COLOR_GREEN)   # HEALTHY
-    curses.init_pair(10, curses.COLOR_WHITE, curses.COLOR_CYAN)    # INFO
+    curses.init_pair(6,  curses.COLOR_WHITE, curses.COLOR_RED)     # CRITICAL
+    curses.init_pair(7,  curses.COLOR_WHITE, curses.COLOR_YELLOW)  # WARNING
+    curses.init_pair(8,  curses.COLOR_WHITE, curses.COLOR_GREEN)   # HEALTHY
+    curses.init_pair(9,  curses.COLOR_WHITE, curses.COLOR_CYAN)    # INFO
 
     C = {
-        "RUN":  curses.color_pair(1),
-        "DIM":   curses.color_pair(2) | curses.A_DIM,
-        "MUTED": curses.color_pair(2),  # white without A_DIM — brighter than DIM
-        "HEAD": curses.color_pair(3),
-        "SEL":  curses.color_pair(4),
-        # YLW + ERR get A_BOLD so they're bright on dark terminals —
-        # plain red on a dark background is nearly invisible.
-        "YLW":  curses.color_pair(5) | curses.A_BOLD,
-        "ERR":  curses.color_pair(6) | curses.A_BOLD,
-        "BANNER_CRIT":    curses.color_pair(7),
-        "BANNER_WARN":    curses.color_pair(8),
-        "BANNER_HEALTHY": curses.color_pair(9),
-        "BANNER_INFO":    curses.color_pair(10),
+        "SEL":   curses.color_pair(1),
+        "RUN":   curses.color_pair(2),
+        "YLW":   curses.color_pair(3),
+        "ERR":   curses.color_pair(4),
+        "HEAD":  curses.color_pair(5),
+        "DIM":   curses.color_pair(5) | curses.A_DIM,
+        "MUTED": curses.color_pair(5),
+        "BANNER_CRIT":    curses.color_pair(6),
+        "BANNER_WARN":    curses.color_pair(7),
+        "BANNER_HEALTHY": curses.color_pair(8),
+        "BANNER_INFO":    curses.color_pair(9),
     }
 
     repo_filter = _profile_repos(profile_name) if profile_name else None

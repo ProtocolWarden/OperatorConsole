@@ -323,18 +323,16 @@ def _watcher(stdscr, repos: list[str]) -> None:
     curses.init_pair(2, curses.COLOR_GREEN,  -1)
     curses.init_pair(3, curses.COLOR_YELLOW, -1)
     curses.init_pair(4, curses.COLOR_RED,    -1)
-    curses.init_pair(5, curses.COLOR_CYAN,   -1)
-    curses.init_pair(6, curses.COLOR_WHITE,  -1)
+    curses.init_pair(5, curses.COLOR_WHITE,  -1)
 
     C = {
-        "SEL":  curses.color_pair(1),
-        "RUN":  curses.color_pair(2),
-        "YLW":  curses.color_pair(3),
-        "ERR":  curses.color_pair(4),
-        "GRP":  curses.color_pair(5),
-        "HEAD":  curses.color_pair(6),
-        "DIM":   curses.A_DIM,
-        "MUTED": curses.color_pair(6),  # white without A_DIM — brighter than DIM
+        "SEL":   curses.color_pair(1),
+        "RUN":   curses.color_pair(2),
+        "YLW":   curses.color_pair(3),
+        "ERR":   curses.color_pair(4),
+        "HEAD":  curses.color_pair(5),
+        "DIM":   curses.color_pair(5) | curses.A_DIM,
+        "MUTED": curses.color_pair(5),
     }
 
     statuses: dict[str, tuple | None] = {r: None for r in repos}
