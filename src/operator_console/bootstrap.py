@@ -347,12 +347,21 @@ After meaningful progress, update `.console/backlog.md` and `.console/log.md`.
 Do not edit `.console/.context` directly — it is regenerated at each launch.
 """
     if claude_md.exists():
+        import re
         existing = claude_md.read_text(encoding="utf-8")
         if marker in existing:
-            # Replace existing console block
-            import re
+            # Replace existing marked block
             new_text = re.sub(
                 r"<!-- console-context -->.*",
+                block.strip(),
+                existing,
+                flags=re.DOTALL,
+            )
+            claude_md.write_text(new_text.rstrip() + "\n", encoding="utf-8")
+        elif "## OperatorConsole Context" in existing:
+            # Old format without marker — replace from that heading onward
+            new_text = re.sub(
+                r"## OperatorConsole Context.*",
                 block.strip(),
                 existing,
                 flags=re.DOTALL,
