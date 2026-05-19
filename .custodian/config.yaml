@@ -89,8 +89,17 @@ audit:
       # cli.py: full CLI argument dispatch + subcommand table.
       # commands.py: all interactive TUI commands + run management.
       # watcher_status_pane.py: full status pane with multiple sub-panels.
+      # git_watcher.py: combined polling + display logic for git watch mode.
       - src/operator_console/cli.py
       - src/operator_console/commands.py
+      - src/operator_console/watcher_status_pane.py
+      - src/operator_console/git_watcher.py
+    D11:
+      # _put() is a two-line TUI helper (move cursor + write) duplicated in
+      # git_watcher and watcher_status_pane. Extracting it to a shared module
+      # would add a cross-pane import for a trivial helper; duplication is
+      # intentional and acceptable here.
+      - src/operator_console/git_watcher.py
       - src/operator_console/watcher_status_pane.py
     # D7 (dead method param) was retired during Custodian's tool-first
     # deprecation pass — no longer a registered detector, so its

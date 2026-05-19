@@ -1,5 +1,11 @@
 # Log
 
+## 2026-05-19 — Suppressed pre-existing C29/D11 custodian findings (git_watcher.py)
+
+Added C29 suppression for git_watcher.py (518 lines, same rationale as other TUI
+panel modules). Added D11 suppression for _put() helper duplicated between
+git_watcher.py and watcher_status_pane.py (intentional micro-helper duplication).
+
 ## 2026-05-19 — Removed live kodo/archon references from src
 
 Updated watcher_status_pane.py docstring (kodo → executor campaigns). Updated
