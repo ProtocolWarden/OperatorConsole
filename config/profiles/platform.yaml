@@ -16,4 +16,4 @@ group:
   - teamexecutor
   - dagexecutor
   - critiqueexecutor
-  - contextlifecycleprotocol
+  - contextlifecycle

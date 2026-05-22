@@ -1,16 +1,20 @@
 # Log
 
+## 2026-05-22 — Rename ContextLifecycleProtocol → ContextLifecycle
+
+Hard cutover. Renamed profile file from `contextlifecycleprotocol.yaml` to `contextlifecycle.yaml`. Updated all references in config, git_watcher, and platform.yaml.
+
 ## 2026-05-21 — Fix console-context block overwriting repo-owned CLAUDE.md content
 
 bootstrap.py rewrote CLAUDE.md from the open marker to EOF (DOTALL), nuking anything below
 the OC block. Fix: add <!-- /console-context --> closing fence; regex now replaces only the
 fenced region. All existing CLAUDE.md files migrated to add the closing fence.
 
-## 2026-05-21 — Add ContextLifecycleProtocol to platform group and git watcher
+## 2026-05-21 — Add ContextLifecycle to platform group and git watcher
 
-Added contextlifecycleprotocol to platform.yaml group list.
+Added contextlifecycle to platform.yaml group list.
 Added "Cognition" group to git_watcher.py _GROUPS (between Executors and Contracts)
-containing ContextLifecycleProtocol. Profile yaml was already on main.
+containing ContextLifecycle. Profile yaml was already on main.
 
 ## 2026-05-19 — Update corerunner.yaml repo_root to CoreRunner/
 
