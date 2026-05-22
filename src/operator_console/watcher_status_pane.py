@@ -963,9 +963,9 @@ def _build_sections(
             bu = usage.get(backend, {})
             cells: list[str] = []
             worst_attr = C["RUN"]
-            for win_label, used_key, cap_key in (
-                ("Hourly", "hourly", "max_per_hour"),
-                ("Daily",  "daily",  "max_per_day"),
+            for abbrev, used_key, cap_key in (
+                ("H", "hourly", "max_per_hour"),
+                ("D", "daily",  "max_per_day"),
             ):
                 limit = bc.get(cap_key) or global_cap.get(cap_key)
                 used = bu.get(used_key, 0)
@@ -975,9 +975,9 @@ def _build_sections(
                         worst_attr = C["ERR"]
                     elif ratio >= 0.8 and worst_attr is C["RUN"]:
                         worst_attr = C["YLW"]
-                    cells.append(f"{win_label} {used}/{limit}")
+                    cells.append(f"{abbrev}:{used}/{limit}")
                 elif used:
-                    cells.append(f"{win_label} {used}/∞")
+                    cells.append(f"{abbrev}:{used}/∞")
             in_flight = bu.get("in_flight", 0)
             mc = bc.get("max_concurrent")
             if mc is not None:
@@ -986,15 +986,15 @@ def _build_sections(
                     worst_attr = C["ERR"]
                 elif ratio >= 0.8 and worst_attr is C["RUN"]:
                     worst_attr = C["YLW"]
-                cells.append(f"In-Flight {in_flight}/{mc}")
+                cells.append(f"F:{in_flight}/{mc}")
             elif in_flight:
-                cells.append(f"In-Flight {in_flight}/∞")
+                cells.append(f"F:{in_flight}/∞")
             ram_floor = bc.get("min_available_memory_mb")
             if ram_floor is not None:
                 if mem_avail_mb and mem_avail_mb < ram_floor:
                     worst_attr = C["ERR"]
-                cells.append(f"RAM ≥ {ram_floor}MB")
-            row = "  ".join(cells) if cells else "(No Limits)"
+                cells.append(f"≥{ram_floor}M")
+            row = " ".join(cells) if cells else "(No Limits)"
             bc_lines.append((f"  {_tc(backend):<14} {row}", worst_attr))
             if worst_attr is C["ERR"]:
                 bc_section_worst = C["ERR"]
@@ -1490,15 +1490,20 @@ def _draw_main(
     # middle_bottom with a leading divider above Global Rate. (When the
     # middle is short, this coincides with the under-Services divider
     # at the same row — visually one line.)
+    # bottom_vbuf_meta mirrors the cursor metadata for the top vbuf so the
+    # unified cursor can extend into (and highlight) bottom section rows.
+    bottom_vbuf_meta: list[tuple[str, int]] = []
     r = middle_bottom
     if r < h - footer_h:
         _put(stdscr, r, h, w, "─" * (w - 1), C["DIM"])
+        bottom_vbuf_meta.append(("", -1))
         r += 1
     for idx, sec in enumerate(bottom_secs):
         if r >= h - footer_h:
             break
         if idx > 0 and r < h - footer_h:
             _put(stdscr, r, h, w, "─" * (w - 1), C["DIM"])
+            bottom_vbuf_meta.append(("", -1))
             r += 1
         sec_id = sec["id"]
         sec_h = _sec_height(sec)
@@ -1510,10 +1515,16 @@ def _draw_main(
             if j >= len(sec["lines"]):
                 break
             text, attr = sec["lines"][j]
+            bot_cur = len(bottom_vbuf_meta)
             if text == _SEP_MARKER:
                 _put(stdscr, r, h, w, "─" * (w - 1), attr)
+                bottom_vbuf_meta.append(("", -1))
             else:
-                put(r, text, attr)
+                if cursor_vrow - total_buf_h == bot_cur:
+                    put(r, text, C["SEL"] | curses.A_BOLD)
+                else:
+                    put(r, text, attr)
+                bottom_vbuf_meta.append((sec_id, j))
             r += 1
         section_rows[sec_id] = (start_row, r)
 
@@ -1527,7 +1538,9 @@ def _draw_main(
     if flash:
         put(h - 3 - hint_h, f" {flash}", C["HEAD"])
     stdscr.refresh()
-    return section_rows, header_rows, top_scroll_offset, total_buf_h, vbuf_meta, middle_h
+    full_vbuf_meta = vbuf_meta + bottom_vbuf_meta
+    total_vbuf_h = total_buf_h + len(bottom_vbuf_meta)
+    return section_rows, header_rows, top_scroll_offset, total_buf_h, full_vbuf_meta, middle_h, total_vbuf_h
 
 
 # ── submenu view ──────────────────────────────────────────────────────────────
@@ -1686,6 +1699,7 @@ def _pane(stdscr, profile_name: str) -> None:
     cursor_vrow      = 0
     prev_cursor_vrow = -1
     total_buf_h      = 0
+    total_vbuf_h     = 0
     vbuf_meta: list  = []
     middle_h         = 1
     action_role      = ""
@@ -1765,16 +1779,17 @@ def _pane(stdscr, profile_name: str) -> None:
                 conditions[(banner_index + 1) % len(conditions)]
                 if len(conditions) > 1 else None
             )
-            # Auto-scroll to keep cursor_vrow visible.
+            # Auto-scroll to keep cursor_vrow visible (top block only).
             if cursor_vrow != prev_cursor_vrow and middle_h > 0:
-                if cursor_vrow - 1 < top_scroll_offset:
-                    top_scroll_offset = max(0, cursor_vrow - 1)
-                elif cursor_vrow + 1 >= top_scroll_offset + middle_h:
-                    top_scroll_offset = cursor_vrow + 1 - middle_h + 1
-                top_scroll_offset = max(0, min(top_scroll_offset, max(0, total_buf_h - middle_h)))
+                if cursor_vrow < total_buf_h:
+                    if cursor_vrow - 1 < top_scroll_offset:
+                        top_scroll_offset = max(0, cursor_vrow - 1)
+                    elif cursor_vrow + 1 >= top_scroll_offset + middle_h:
+                        top_scroll_offset = cursor_vrow + 1 - middle_h + 1
+                    top_scroll_offset = max(0, min(top_scroll_offset, max(0, total_buf_h - middle_h)))
                 prev_cursor_vrow = cursor_vrow
             (section_rows, header_rows, top_scroll_offset,
-             total_buf_h, vbuf_meta, middle_h) = _draw_main(
+             total_buf_h, vbuf_meta, middle_h, total_vbuf_h) = _draw_main(
                 stdscr, snap, -1, refreshing, flash, C, section_offsets,
                 collapsed=collapsed_sections,
                 size_mult=size_mult,
@@ -1788,7 +1803,7 @@ def _pane(stdscr, profile_name: str) -> None:
                 next_banner=next_banner,
                 cursor_vrow=cursor_vrow,
             )
-            cursor_vrow = max(0, min(cursor_vrow, total_buf_h - 1))
+            cursor_vrow = max(0, min(cursor_vrow, total_vbuf_h - 1))
 
         # Marquee + cycle bookkeeping. Banner always animates. Cycle to
         # the next condition only when the current condition's full unit
@@ -1849,11 +1864,10 @@ def _pane(stdscr, profile_name: str) -> None:
                 while cursor_vrow > 0 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
                     cursor_vrow -= 1
             elif key == curses.KEY_DOWN:
-                cursor_vrow = min(max(0, total_buf_h - 1), cursor_vrow + 1)
-                while cursor_vrow < total_buf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                cursor_vrow = min(max(0, total_vbuf_h - 1), cursor_vrow + 1)
+                while cursor_vrow < total_vbuf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
                     cursor_vrow += 1
             elif key == curses.KEY_PPAGE:
-                # Scroll the top block up by ~10 lines.
                 amount = max(1, middle_h - 1)
                 top_scroll_offset = max(0, top_scroll_offset - amount)
                 cursor_vrow = max(0, cursor_vrow - amount)
@@ -1862,15 +1876,15 @@ def _pane(stdscr, profile_name: str) -> None:
             elif key == curses.KEY_NPAGE:
                 amount = max(1, middle_h - 1)
                 top_scroll_offset += amount  # clamped on next render
-                cursor_vrow = min(max(0, total_buf_h - 1), cursor_vrow + amount)
-                while cursor_vrow < total_buf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                cursor_vrow = min(max(0, total_vbuf_h - 1), cursor_vrow + amount)
+                while cursor_vrow < total_vbuf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
                     cursor_vrow += 1
             elif key == curses.KEY_HOME:
                 top_scroll_offset = 0
                 cursor_vrow = 0
             elif key == curses.KEY_END:
                 top_scroll_offset = 10_000  # clamped on next render
-                cursor_vrow = max(0, total_buf_h - 1)
+                cursor_vrow = max(0, total_vbuf_h - 1)
             elif key == ord("+"):
                 cur = size_mult.get(focused_section, 1.0)
                 size_mult[focused_section] = min(
@@ -1888,10 +1902,8 @@ def _pane(stdscr, profile_name: str) -> None:
                     focused_section, False,
                 )
             elif key == curses.KEY_MOUSE:
-                # Wheel events: BUTTON4=up, BUTTON5=down. The top block is
-                # one virtual buffer driven by top_scroll_offset; the
-                # bottom-anchored sections are individually un-scrollable
-                # but support click-on-header collapse.
+                # Wheel events move the unified cursor across all sections
+                # (top + bottom anchored). Click on a header collapses it.
                 try:
                     _, _mx, my, _, bstate = curses.getmouse()
                 except curses.error:
@@ -1902,19 +1914,15 @@ def _pane(stdscr, profile_name: str) -> None:
                     if s <= my < e:
                         target_section = sec_id
                         break
-                _BOTTOM_IDS = {"system_resources", "global_gate", "global_rate"}
                 if bstate & (curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED):
-                    # Wheel anywhere in the top area scrolls the virtual
-                    # buffer; over a bottom-anchored section moves cursor.
-                    if target_section is None or target_section not in _BOTTOM_IDS:
-                        if bstate & curses.BUTTON4_PRESSED:
-                            cursor_vrow = max(0, cursor_vrow - 1)
-                            while cursor_vrow > 0 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
-                                cursor_vrow -= 1
-                        elif bstate & curses.BUTTON5_PRESSED:
-                            cursor_vrow = min(max(0, total_buf_h - 1), cursor_vrow + 1)
-                            while cursor_vrow < total_buf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
-                                cursor_vrow += 1
+                    if bstate & curses.BUTTON4_PRESSED:
+                        cursor_vrow = max(0, cursor_vrow - 1)
+                        while cursor_vrow > 0 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                            cursor_vrow -= 1
+                    elif bstate & curses.BUTTON5_PRESSED:
+                        cursor_vrow = min(max(0, total_vbuf_h - 1), cursor_vrow + 1)
+                        while cursor_vrow < total_vbuf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                            cursor_vrow += 1
                 elif target_section is not None:
                     focused_section = target_section
                     if bstate & curses.BUTTON1_PRESSED:
