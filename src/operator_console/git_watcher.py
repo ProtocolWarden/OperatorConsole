@@ -18,6 +18,10 @@ import threading
 import time
 from pathlib import Path
 
+# ── Chevron / glyph conventions ───────────────────────────────────────────────
+# ▸ / ▾  Group headers — collapsed / expanded toggle (U+25B8 / U+25BE)
+# ❯      Scroll overflow indicator — SEL color, shown on boundary row (U+276F)
+
 # ── component groups ──────────────────────────────────────────────────────────
 # Each entry: (display label, frozenset of canonical repo folder names).
 # Repos not matched by any group land in "Other".
@@ -309,6 +313,12 @@ def _draw(
     visible = vbuf[scroll_offset: scroll_offset + body_h]
     for screen_row, (text, attr) in enumerate(visible):
         _put(stdscr, 3 + screen_row, h, w, text, attr)
+
+    # Scroll chevrons: ❯ in SEL when content is clipped above or below.
+    if scroll_offset > 0:
+        _put(stdscr, 3, h, w, "❯" + " " * (w - 2), C["SEL"])
+    if scroll_offset + body_h < total_vrows:
+        _put(stdscr, 3 + body_h - 1, h, w, "❯" + " " * (w - 2), C["SEL"])
 
     stdscr.refresh()
     return sel_vrow, total_vrows

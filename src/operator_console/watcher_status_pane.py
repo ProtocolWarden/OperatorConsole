@@ -35,6 +35,11 @@ _PROFILES_DIR = Path(__file__).resolve().parent.parent.parent / "config" / "prof
 _ROLES   = ("intake", "goal", "test", "improve", "propose", "review", "spec", "watchdog")
 _ACTIONS = ("tail logs", "board", "circuit breaker", "memory")
 
+# ── Chevron / glyph conventions ───────────────────────────────────────────────
+# ▸ / ▾  Section headers — collapsed / expanded toggle (U+25B8 / U+25BE)
+# ›      Active / in-progress item marker inside a section (U+203A)
+# ❯      Scroll overflow indicator — SEL color, shown on boundary row (U+276F)
+
 REFRESH_INTERVAL       = 3
 PLANE_REFRESH_INTERVAL = 30
 LOG_TAIL_LINES         = 60
@@ -841,7 +846,7 @@ def _build_sections(
             attr = C["ERR"]
         if i == sel:
             role_sel_local = len(role_lines)
-            full = ("▶" + line[1:] + " [Enter]")[:w - 1]
+            full = ("›" + line[1:] + " [Enter]")[:w - 1]
             role_lines.append((full, C["SEL"] | curses.A_BOLD))
         else:
             role_lines.append((line, attr))
@@ -857,7 +862,7 @@ def _build_sections(
         for item in active_tasks:
             repo  = _tc(item.get("repo", "?"))[:14]
             title = item.get("title", "?")[:max(w - 20, 8)]
-            active_lines.append((f"  ▶  {repo:<14} {title}", C["RUN"]))
+            active_lines.append((f"  ›  {repo:<14} {title}", C["RUN"]))
         sections.append({"id": "active", "lines": active_lines, "sel_local": -1})
 
     # ── recent activity (worker logs) ──
@@ -898,7 +903,7 @@ def _build_sections(
             elif status == "failed":
                 icon, attr = "✗", C["ERR"]
             else:
-                icon, attr = "▶", C["YLW"]
+                icon, attr = "›", C["YLW"]
             camp_lines.append((f"  {icon}  {slug}", attr))
         sections.append({"id": "campaigns", "lines": camp_lines, "sel_local": -1})
 
@@ -1451,9 +1456,9 @@ def _draw_main(
 
     # Top-block scroll indicators on the boundary rows.
     if top_scroll_offset > 0:
-        put(middle_top, "▲" + " " * (w - 2), C["YLW"])
+        put(middle_top, "❯" + " " * (w - 2), C["SEL"])
     if top_scroll_offset < max_scroll:
-        put(middle_bottom - 1, "▼" + " " * (w - 2), C["YLW"])
+        put(middle_bottom - 1, "❯" + " " * (w - 2), C["SEL"])
 
     # Divider directly under the last rendered top section. When the
     # virtual buffer is shorter than the middle area, this hangs at the
@@ -1524,7 +1529,7 @@ def _draw_submenu(stdscr, role: str, info: dict, sel: int, C: dict) -> None:
     for i, action in enumerate(_ACTIONS):
         label = _tc(action.replace(" ", "_"))
         if i == sel:
-            put(i + 2, f"  ▶ {label}", C["SEL"] | curses.A_BOLD)
+            put(i + 2, f"  › {label}", C["SEL"] | curses.A_BOLD)
         else:
             put(i + 2, f"    {label}", 0)
 
