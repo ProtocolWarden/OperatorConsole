@@ -314,11 +314,17 @@ def _draw(
     for screen_row, (text, attr) in enumerate(visible):
         _put(stdscr, 3 + screen_row, h, w, text, attr)
 
-    # Scroll chevrons: ❯ in SEL when content is clipped above or below.
+    # Scroll chevrons: ❯ at right edge in SEL when content is clipped.
+    def _put_right(row: int, ch: str, attr: int) -> None:
+        if 0 <= row < h and w > 1:
+            try:
+                stdscr.addstr(row, w - 2, ch, attr)
+            except curses.error:
+                pass
     if scroll_offset > 0:
-        _put(stdscr, 3, h, w, "❯" + " " * (w - 2), C["SEL"])
+        _put_right(3, "❯", C["SEL"])
     if scroll_offset + body_h < total_vrows:
-        _put(stdscr, 3 + body_h - 1, h, w, "❯" + " " * (w - 2), C["SEL"])
+        _put_right(3 + body_h - 1, "❯", C["SEL"])
 
     stdscr.refresh()
     return sel_vrow, total_vrows
@@ -417,17 +423,21 @@ def _watcher(stdscr, repos: list[str]) -> None:
             hint_h = len(_wrap_hints(_HINT_CHUNKS, max(1, w - 2)))
         body_h = max(1, h - 3 - 2 - hint_h)  # h - sep/header/sep(3) - sep-above-hints(1) - hints - sep-below-hints(1)
 
-        sel_vrow, total_vrows = _draw(
-            stdscr, groups, items, s_snap, b_snap,
-            sel_item, refreshing, hints_collapsed, collapsed_groups, scroll_offset, C,
+        # auto-scroll before draw so selection is always on-screen immediately
+        vbuf, sel_vrow = _build_vbuf(
+            groups, items, s_snap, b_snap, sel_item, collapsed_groups, w, C,
         )
-
-        # auto-scroll to keep selection visible
+        total_vrows = len(vbuf)
         if sel_vrow < scroll_offset:
             scroll_offset = sel_vrow
         elif sel_vrow >= scroll_offset + body_h:
             scroll_offset = sel_vrow - body_h + 1
         scroll_offset = max(0, min(scroll_offset, max(0, total_vrows - body_h)))
+
+        _draw(
+            stdscr, groups, items, s_snap, b_snap,
+            sel_item, refreshing, hints_collapsed, collapsed_groups, scroll_offset, C,
+        )
 
         key = stdscr.getch()
 
@@ -438,13 +448,13 @@ def _watcher(stdscr, repos: list[str]) -> None:
             nav = nav_idxs()
             if nav:
                 cur_pos  = nav.index(sel_item) if sel_item in nav else 0
-                sel_item = nav[(cur_pos - 1) % len(nav)]
+                sel_item = nav[max(0, cur_pos - 1)]
 
         elif key == curses.KEY_DOWN:
             nav = nav_idxs()
             if nav:
                 cur_pos  = nav.index(sel_item) if sel_item in nav else -1
-                sel_item = nav[(cur_pos + 1) % len(nav)]
+                sel_item = nav[min(len(nav) - 1, cur_pos + 1)]
 
         elif key == ord("g"):
             # jump to first navigable repo of the next group

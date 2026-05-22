@@ -1455,10 +1455,16 @@ def _draw_main(
         section_rows[sid] = (start_screen, min(end_screen, middle_bottom))
 
     # Top-block scroll indicators on the boundary rows.
+    def _put_right(row: int, ch: str, attr: int) -> None:
+        if 0 <= row < h and w > 1:
+            try:
+                stdscr.addstr(row, w - 2, ch, attr)
+            except curses.error:
+                pass
     if top_scroll_offset > 0:
-        put(middle_top, "❯" + " " * (w - 2), C["SEL"])
+        _put_right(middle_top, "❯", C["SEL"])
     if top_scroll_offset < max_scroll:
-        put(middle_bottom - 1, "❯" + " " * (w - 2), C["SEL"])
+        _put_right(middle_bottom - 1, "❯", C["SEL"])
 
     # Divider directly under the last rendered top section. When the
     # virtual buffer is shorter than the middle area, this hangs at the
@@ -1812,8 +1818,10 @@ def _pane(stdscr, profile_name: str) -> None:
         else:
             if key == curses.KEY_UP:
                 role_sel = (role_sel - 1) % len(_ROLES)
+                top_scroll_offset = max(0, top_scroll_offset - 3)
             elif key == curses.KEY_DOWN:
                 role_sel = (role_sel + 1) % len(_ROLES)
+                top_scroll_offset += 3  # clamped on next render
             elif key == curses.KEY_PPAGE:
                 # Scroll the top block up by ~10 lines.
                 top_scroll_offset = max(0, top_scroll_offset - 10)
