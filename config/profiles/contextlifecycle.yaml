@@ -1,5 +1,5 @@
 name: ContextLifecycle
-repo_root: /home/dev/Documents/GitHub/ContextLifecycle
+repo_root: /home/dev/Documents/GitHub/ContextLifecycleProtocol
 
 claude:
   continue: true
