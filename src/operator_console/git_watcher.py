@@ -229,6 +229,9 @@ def _build_vbuf(
 
             if vbuf:  # no leading sep before the very first group
                 vbuf.append(SEP)
+            if item_idx == sel_item:
+                sel_vrow = len(vbuf)
+                attr = C["SEL"] | curses.A_BOLD
             vbuf.append((hdr_text[: w - 1], attr))
 
         else:
@@ -370,6 +373,16 @@ def _watcher(stdscr, repos: list[str]) -> None:
     def nav_idxs() -> list[int]:
         return _navigable(items, collapsed_groups)
 
+    def all_nav_idxs() -> list[int]:
+        """All navigable indices: headers plus uncollapsed repos."""
+        result = []
+        for i, it in enumerate(items):
+            if it["kind"] == "header":
+                result.append(i)
+            elif it["kind"] == "repo" and it["group"] not in collapsed_groups:
+                result.append(i)
+        return result
+
     # start selection on first navigable repo
     sel_item = nav_idxs()[0] if nav_idxs() else 0
 
@@ -378,9 +391,9 @@ def _watcher(stdscr, repos: list[str]) -> None:
         return it["group"] if it and it["kind"] == "repo" else None
 
     def _clamp_sel() -> None:
-        """After collapsing, move selection to nearest navigable repo."""
+        """After collapsing, move selection to nearest navigable item (header or repo)."""
         nonlocal sel_item
-        nav = nav_idxs()
+        nav = all_nav_idxs()
         if not nav:
             return
         if sel_item in nav:
@@ -447,13 +460,13 @@ def _watcher(stdscr, repos: list[str]) -> None:
             break
 
         elif key == curses.KEY_UP:
-            nav = nav_idxs()
+            nav = all_nav_idxs()
             if nav:
                 cur_pos  = nav.index(sel_item) if sel_item in nav else 0
                 sel_item = nav[max(0, cur_pos - 1)]
 
         elif key == curses.KEY_DOWN:
-            nav = nav_idxs()
+            nav = all_nav_idxs()
             if nav:
                 cur_pos  = nav.index(sel_item) if sel_item in nav else -1
                 sel_item = nav[min(len(nav) - 1, cur_pos + 1)]
@@ -507,11 +520,11 @@ def _watcher(stdscr, repos: list[str]) -> None:
         elif key == curses.KEY_MOUSE:
             try:
                 _, _mx, _my, _mz, bstate = curses.getmouse()
-                nav = nav_idxs()
-                if nav and bstate & curses.BUTTON4_PRESSED:   # wheel up → prev repo
+                nav = all_nav_idxs()
+                if nav and bstate & curses.BUTTON4_PRESSED:   # wheel up → prev item
                     cur_pos  = nav.index(sel_item) if sel_item in nav else 0
                     sel_item = nav[max(0, cur_pos - 1)]
-                elif nav and bstate & curses.BUTTON5_PRESSED:  # wheel down → next repo
+                elif nav and bstate & curses.BUTTON5_PRESSED:  # wheel down → next item
                     cur_pos  = nav.index(sel_item) if sel_item in nav else -1
                     sel_item = nav[min(len(nav) - 1, cur_pos + 1)]
             except curses.error:
@@ -526,10 +539,19 @@ def _watcher(stdscr, repos: list[str]) -> None:
             hints_collapsed = not hints_collapsed
 
         elif key in (curses.KEY_ENTER, 10, 13):
-            if sel_item < len(items) and items[sel_item]["kind"] == "repo":
-                repo = items[sel_item]["path"]
-                curses.endwin()
-                os.execvp("lazygit", ["lazygit", "-p", repo])
+            if sel_item < len(items):
+                it = items[sel_item]
+                if it["kind"] == "header":
+                    label = it["label"]
+                    if label in collapsed_groups:
+                        collapsed_groups.discard(label)
+                    else:
+                        collapsed_groups.add(label)
+                    _clamp_sel()
+                elif it["kind"] == "repo":
+                    repo = it["path"]
+                    curses.endwin()
+                    os.execvp("lazygit", ["lazygit", "-p", repo])
 
 
 def main() -> None:

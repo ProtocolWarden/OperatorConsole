@@ -956,6 +956,8 @@ def _build_sections(
     if caps or usage:
         bc_lines: list[tuple[str, int]] = []
         bc_section_worst = C["RUN"]
+        budget = data.get("budget", {})
+        global_cap = {"max_per_hour": budget.get("hourly_cap"), "max_per_day": budget.get("daily_cap")}
         for backend in sorted(set(caps) | set(usage)):
             bc = caps.get(backend, {})
             bu = usage.get(backend, {})
@@ -965,7 +967,7 @@ def _build_sections(
                 ("Hourly", "hourly", "max_per_hour"),
                 ("Daily",  "daily",  "max_per_day"),
             ):
-                limit = bc.get(cap_key)
+                limit = bc.get(cap_key) or global_cap.get(cap_key)
                 used = bu.get(used_key, 0)
                 if limit is not None:
                     ratio = (used / limit) if limit else 0.0
@@ -1254,7 +1256,8 @@ def _draw_main(
     hints_collapsed: bool = True,
     top_scroll_offset: int = 0,
     next_banner: tuple[str, str] | None = None,
-) -> tuple[dict[str, tuple[int, int]], dict[str, int], int]:
+    cursor_vrow: int = -1,
+) -> tuple[dict[str, tuple[int, int]], dict[str, int], int, int, list, int]:
     """Render the main view with per-section scroll/collapse/size state.
 
     Each top-level section (roles / active / recent / board / campaigns /
@@ -1264,11 +1267,15 @@ def _draw_main(
     the cursor is over; click-on-header toggles the section's collapsed
     state; ``+``/``-`` keys grow/shrink the focused section's allocation.
 
-    Returns ``(section_rows, header_rows)``:
+    Returns ``(section_rows, header_rows, top_scroll_offset, total_buf_h, vbuf_meta, middle_h)``:
       - ``section_rows[sid] = (start, end_exclusive)`` for hit-testing
         wheel scrolls anywhere in the section
       - ``header_rows[sid] = row`` of the section's header line for
         hit-testing collapse-toggle clicks
+      - ``top_scroll_offset`` clamped scroll offset
+      - ``total_buf_h`` total virtual buffer height
+      - ``vbuf_meta`` list of ``(section_id, line_idx_in_section)`` per vbuf row
+      - ``middle_h`` height of the middle visible area
     """
     collapsed = collapsed or {}
     size_mult = size_mult or {}
@@ -1405,10 +1412,12 @@ def _draw_main(
     # scrolls it); content below the window flows under the bottom-
     # anchored block, which renders on top afterward.
     vbuf: list[tuple[str, int]] = []
+    vbuf_meta: list[tuple[str, int]] = []  # (section_id, line_idx_in_section)
     section_buf_ranges: dict[str, tuple[int, int]] = {}
     for i, sec in enumerate(sections):
         if i > 0:
             vbuf.append((_SEP_MARKER, C["DIM"]))
+            vbuf_meta.append(("", -1))
         start_idx = len(vbuf)
         sec_h = rows_per[i]
         for j in range(sec_h):
@@ -1416,6 +1425,7 @@ def _draw_main(
                 vbuf.append(sec["lines"][j])
             else:
                 vbuf.append(("", 0))
+            vbuf_meta.append((sec["id"], j))
         section_buf_ranges[sec["id"]] = (start_idx, len(vbuf))
 
     middle_h = middle_bottom - middle_top
@@ -1440,6 +1450,8 @@ def _draw_main(
         if text == _SEP_MARKER:
             _put(stdscr, screen_row, h, w, "─" * (w - 1), attr)
         else:
+            if buf_idx == cursor_vrow and buf_idx < len(vbuf_meta) and vbuf_meta[buf_idx][1] != -1:
+                attr = C["SEL"] | curses.A_BOLD
             put(screen_row, text, attr)
 
     # Map buffer indices to screen rows so click + wheel hit-testing works.
@@ -1515,7 +1527,7 @@ def _draw_main(
     if flash:
         put(h - 3 - hint_h, f" {flash}", C["HEAD"])
     stdscr.refresh()
-    return section_rows, header_rows, top_scroll_offset
+    return section_rows, header_rows, top_scroll_offset, total_buf_h, vbuf_meta, middle_h
 
 
 # ── submenu view ──────────────────────────────────────────────────────────────
@@ -1671,7 +1683,12 @@ def _pane(stdscr, profile_name: str) -> None:
     except curses.error:
         pass  # Terminal without mouse support — keyboard still works.
 
-    role_sel    = 0
+    cursor_vrow      = 0
+    prev_cursor_vrow = -1
+    total_buf_h      = 0
+    vbuf_meta: list  = []
+    middle_h         = 1
+    action_role      = ""
     mode        = "roles"
     action_sel  = 0
     log_lines: list[str] = []
@@ -1739,17 +1756,26 @@ def _pane(stdscr, profile_name: str) -> None:
         current_banner = conditions[banner_index]
 
         if mode == "log":
-            _draw_log_view(stdscr, _ROLES[role_sel], log_lines, C)
+            _draw_log_view(stdscr, action_role, log_lines, C)
         elif mode == "action":
-            _draw_submenu(stdscr, _ROLES[role_sel],
-                          snap["roles"].get(_ROLES[role_sel], {}), action_sel, C)
+            _draw_submenu(stdscr, action_role,
+                          snap["roles"].get(action_role, {}), action_sel, C)
         else:
             next_banner = (
                 conditions[(banner_index + 1) % len(conditions)]
                 if len(conditions) > 1 else None
             )
-            section_rows, header_rows, top_scroll_offset = _draw_main(
-                stdscr, snap, role_sel, refreshing, flash, C, section_offsets,
+            # Auto-scroll to keep cursor_vrow visible.
+            if cursor_vrow != prev_cursor_vrow and middle_h > 0:
+                if cursor_vrow - 1 < top_scroll_offset:
+                    top_scroll_offset = max(0, cursor_vrow - 1)
+                elif cursor_vrow + 1 >= top_scroll_offset + middle_h:
+                    top_scroll_offset = cursor_vrow + 1 - middle_h + 1
+                top_scroll_offset = max(0, min(top_scroll_offset, max(0, total_buf_h - middle_h)))
+                prev_cursor_vrow = cursor_vrow
+            (section_rows, header_rows, top_scroll_offset,
+             total_buf_h, vbuf_meta, middle_h) = _draw_main(
+                stdscr, snap, -1, refreshing, flash, C, section_offsets,
                 collapsed=collapsed_sections,
                 size_mult=size_mult,
                 focused_section=focused_section,
@@ -1760,7 +1786,9 @@ def _pane(stdscr, profile_name: str) -> None:
                 hints_collapsed=hints_collapsed,
                 top_scroll_offset=top_scroll_offset,
                 next_banner=next_banner,
+                cursor_vrow=cursor_vrow,
             )
+            cursor_vrow = max(0, min(cursor_vrow, total_buf_h - 1))
 
         # Marquee + cycle bookkeeping. Banner always animates. Cycle to
         # the next condition only when the current condition's full unit
@@ -1799,7 +1827,7 @@ def _pane(stdscr, profile_name: str) -> None:
                 mode = "roles"
             elif key in (curses.KEY_ENTER, 10, 13):
                 action = _ACTIONS[action_sel]
-                role   = _ROLES[role_sel]
+                role   = action_role
                 if action == "tail logs":
                     msg = _do_tail(role)
                     flash = msg
@@ -1817,20 +1845,32 @@ def _pane(stdscr, profile_name: str) -> None:
 
         else:
             if key == curses.KEY_UP:
-                role_sel = (role_sel - 1) % len(_ROLES)
-                top_scroll_offset = max(0, top_scroll_offset - 3)
+                cursor_vrow = max(0, cursor_vrow - 1)
+                while cursor_vrow > 0 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                    cursor_vrow -= 1
             elif key == curses.KEY_DOWN:
-                role_sel = (role_sel + 1) % len(_ROLES)
-                top_scroll_offset += 3  # clamped on next render
+                cursor_vrow = min(max(0, total_buf_h - 1), cursor_vrow + 1)
+                while cursor_vrow < total_buf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                    cursor_vrow += 1
             elif key == curses.KEY_PPAGE:
                 # Scroll the top block up by ~10 lines.
-                top_scroll_offset = max(0, top_scroll_offset - 10)
+                amount = max(1, middle_h - 1)
+                top_scroll_offset = max(0, top_scroll_offset - amount)
+                cursor_vrow = max(0, cursor_vrow - amount)
+                while cursor_vrow > 0 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                    cursor_vrow -= 1
             elif key == curses.KEY_NPAGE:
-                top_scroll_offset += 10  # clamped on next render
+                amount = max(1, middle_h - 1)
+                top_scroll_offset += amount  # clamped on next render
+                cursor_vrow = min(max(0, total_buf_h - 1), cursor_vrow + amount)
+                while cursor_vrow < total_buf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                    cursor_vrow += 1
             elif key == curses.KEY_HOME:
                 top_scroll_offset = 0
+                cursor_vrow = 0
             elif key == curses.KEY_END:
                 top_scroll_offset = 10_000  # clamped on next render
+                cursor_vrow = max(0, total_buf_h - 1)
             elif key == ord("+"):
                 cur = size_mult.get(focused_section, 1.0)
                 size_mult[focused_section] = min(
@@ -1865,12 +1905,16 @@ def _pane(stdscr, profile_name: str) -> None:
                 _BOTTOM_IDS = {"system_resources", "global_gate", "global_rate"}
                 if bstate & (curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED):
                     # Wheel anywhere in the top area scrolls the virtual
-                    # buffer; over a bottom-anchored section it's a no-op.
+                    # buffer; over a bottom-anchored section moves cursor.
                     if target_section is None or target_section not in _BOTTOM_IDS:
                         if bstate & curses.BUTTON4_PRESSED:
-                            top_scroll_offset = max(0, top_scroll_offset - 3)
+                            cursor_vrow = max(0, cursor_vrow - 1)
+                            while cursor_vrow > 0 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                                cursor_vrow -= 1
                         elif bstate & curses.BUTTON5_PRESSED:
-                            top_scroll_offset += 3  # clamped next render
+                            cursor_vrow = min(max(0, total_buf_h - 1), cursor_vrow + 1)
+                            while cursor_vrow < total_buf_h - 1 and vbuf_meta and vbuf_meta[cursor_vrow][1] == -1:
+                                cursor_vrow += 1
                 elif target_section is not None:
                     focused_section = target_section
                     if bstate & curses.BUTTON1_PRESSED:
@@ -1880,8 +1924,16 @@ def _pane(stdscr, profile_name: str) -> None:
                                 collapsed_sections.get(target_section, False)
                             )
             elif key in (curses.KEY_ENTER, 10, 13):
-                mode = "action"
-                action_sel = 0
+                if 0 <= cursor_vrow < len(vbuf_meta):
+                    sec_id, line_idx = vbuf_meta[cursor_vrow]
+                    if line_idx == 0 and sec_id:  # header row
+                        collapsed_sections[sec_id] = not collapsed_sections.get(sec_id, False)
+                    elif sec_id == "roles" and line_idx > 0:
+                        role_idx = line_idx - 1
+                        if 0 <= role_idx < len(_ROLES):
+                            action_role = _ROLES[role_idx]
+                            mode = "action"
+                            action_sel = 0
             elif key in (ord("?"), ord("/")):
                 hints_collapsed = not hints_collapsed
             elif key == ord("x"):
