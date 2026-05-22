@@ -507,10 +507,13 @@ def _watcher(stdscr, repos: list[str]) -> None:
         elif key == curses.KEY_MOUSE:
             try:
                 _, _mx, _my, _mz, bstate = curses.getmouse()
-                if bstate & curses.BUTTON4_PRESSED:   # wheel up
-                    scroll_offset = max(0, scroll_offset - 3)
-                elif bstate & curses.BUTTON5_PRESSED:  # wheel down
-                    scroll_offset = min(max(0, total_vrows - body_h), scroll_offset + 3)
+                nav = nav_idxs()
+                if nav and bstate & curses.BUTTON4_PRESSED:   # wheel up → prev repo
+                    cur_pos  = nav.index(sel_item) if sel_item in nav else 0
+                    sel_item = nav[max(0, cur_pos - 1)]
+                elif nav and bstate & curses.BUTTON5_PRESSED:  # wheel down → next repo
+                    cur_pos  = nav.index(sel_item) if sel_item in nav else -1
+                    sel_item = nav[min(len(nav) - 1, cur_pos + 1)]
             except curses.error:
                 pass
 
