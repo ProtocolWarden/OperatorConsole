@@ -465,8 +465,9 @@ _USAGE_PATH = _OC_ROOT / "tools" / "report" / "operations_center" / "execution" 
 def _exec_budget() -> dict:
     """Read OC's execution usage.json for global hourly/daily counts.
 
-    Caps come from env (defaults match OC: 10/hour, 50/day). Missing or
-    unreadable file returns zero counts so the pane keeps rendering.
+    Caps prefer the resource_gate block in operations_center.local.yaml,
+    then env overrides, then conservative hardcoded fallbacks (10/50).
+    Missing or unreadable file returns zero counts so the pane keeps rendering.
     """
     hourly = daily = 0
     found = _USAGE_PATH.exists()
@@ -477,8 +478,9 @@ def _exec_budget() -> dict:
             daily = int(data.get("daily_exec_count", 0) or 0)
         except Exception:
             found = False
-    cap_hour = int(os.environ.get("OPERATIONS_CENTER_MAX_EXEC_PER_HOUR", "10"))
-    cap_day = int(os.environ.get("OPERATIONS_CENTER_MAX_EXEC_PER_DAY", "50"))
+    gate = _resource_gate()
+    cap_hour = gate.get("max_per_hour") or int(os.environ.get("OPERATIONS_CENTER_MAX_EXEC_PER_HOUR", "10"))
+    cap_day = gate.get("max_per_day") or int(os.environ.get("OPERATIONS_CENTER_MAX_EXEC_PER_DAY", "50"))
     return {"found": found, "hourly_used": hourly, "hourly_cap": cap_hour,
             "daily_used": daily, "daily_cap": cap_day}
 
@@ -561,7 +563,8 @@ def _resource_gate() -> dict[str, int]:
             key, _, val = content.partition(":")
             key = key.strip()
             val = val.split("#", 1)[0].strip().strip('"').strip("'")
-            if key in ("max_concurrent", "min_available_memory_mb") and val:
+            if key in ("max_concurrent", "min_available_memory_mb",
+                       "max_per_hour", "max_per_day") and val:
                 try:
                     out[key] = int(val)
                 except ValueError:
