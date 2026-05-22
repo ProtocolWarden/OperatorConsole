@@ -34,7 +34,7 @@ def _make_run(root: Path, run_id: str, written_at: str, success: bool = True, pa
         "success": success,
         "executed": True,
         "selected_lane": "claude_cli",
-        "selected_backend": "kodo",
+        "selected_backend": "team_executor",
         "partial": partial,
     }
     (run_dir / "run_metadata.json").write_text(json.dumps(meta))

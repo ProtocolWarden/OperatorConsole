@@ -23,7 +23,7 @@ def _write_run(root: Path, run_id: str, **overrides) -> Path:
         "proposal_id": f"prop-{run_id}",
         "decision_id": f"dec-{run_id}",
         "selected_lane": "claude_cli",
-        "selected_backend": "kodo",
+        "selected_backend": "team_executor",
         "status": "success",
         "success": True,
         "executed": True,
@@ -152,7 +152,7 @@ class TestRunSummary:
         run_dir = _write_run(tmp_path, "run-abc")
         s = run_summary(run_dir)
         assert s["selected_lane"] == "claude_cli"
-        assert s["selected_backend"] == "kodo"
+        assert s["selected_backend"] == "team_executor"
 
     def test_success_field(self, tmp_path):
         from operator_console.runs import run_summary

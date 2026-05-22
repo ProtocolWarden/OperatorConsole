@@ -66,7 +66,7 @@ audit:
       - src/operator_console/cli.py
       - src/operator_console/runs_cmd.py
     C11:
-      # OperatorConsole is a TUI that spawns Claude/kodo sessions (no timeout
+      # OperatorConsole is a TUI that spawns Claude/team_executor sessions (no timeout
       # appropriate) and runs user-triggered commands (user controls duration).
       # Exceptions from all subprocess calls are already caught by the TUI
       # resilience handlers (see C9 exclusion rationale).

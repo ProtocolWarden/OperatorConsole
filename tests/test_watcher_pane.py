@@ -37,23 +37,19 @@ class TestCursesPaneCollectors:
         from operator_console import watcher_status_pane as wsp
         cfg = tmp_path / "operations_center.local.yaml"
         cfg.write_text(
-            "kodo:\n"
-            "  binary: kodo\n"
             "backend_caps:\n"
-            "  kodo:\n"
+            "  team_executor:\n"
             "    min_available_memory_mb: 6144   # subprocess team config\n"
             "    max_concurrent: 1               # teams hate sharing\n"
-            "  archon:\n"
+            "  dag_executor:\n"
             "    max_per_day: 5\n"
             "    max_concurrent: 4\n"
-            "archon:\n"
-            "  enabled: false\n"
         )
         monkeypatch.setattr(wsp, "_OC_CONFIG", cfg)
         caps = wsp._backend_caps()
         assert caps == {
-            "kodo": {"min_available_memory_mb": 6144, "max_concurrent": 1},
-            "archon": {"max_per_day": 5, "max_concurrent": 4},
+            "team_executor": {"min_available_memory_mb": 6144, "max_concurrent": 1},
+            "dag_executor": {"max_per_day": 5, "max_concurrent": 4},
         }
 
     def test_backend_caps_missing_file(self, tmp_path, monkeypatch):
@@ -67,25 +63,25 @@ class TestCursesPaneCollectors:
         from operator_console import watcher_status_pane as wsp
         now = datetime.now(timezone.utc)
         events = [
-            {"kind": "execution", "backend": "archon",
+            {"kind": "execution", "backend": "dag_executor",
              "timestamp": (now - timedelta(minutes=5)).isoformat()},
-            {"kind": "execution", "backend": "archon",
+            {"kind": "execution", "backend": "dag_executor",
              "timestamp": (now - timedelta(hours=8)).isoformat()},
-            {"kind": "execution_started", "backend": "kodo", "task_id": "k1",
+            {"kind": "execution_started", "backend": "team_executor", "task_id": "k1",
              "timestamp": (now - timedelta(minutes=2)).isoformat()},
-            {"kind": "execution_started", "backend": "kodo", "task_id": "k2",
+            {"kind": "execution_started", "backend": "team_executor", "task_id": "k2",
              "timestamp": (now - timedelta(hours=1)).isoformat()},
-            {"kind": "execution_finished", "backend": "kodo", "task_id": "k2",
+            {"kind": "execution_finished", "backend": "team_executor", "task_id": "k2",
              "timestamp": (now - timedelta(minutes=30)).isoformat()},
         ]
         path = tmp_path / "usage.json"
         path.write_text(json.dumps({"events": events}))
         monkeypatch.setattr(wsp, "_USAGE_PATH", path)
         u = wsp._backend_usage()
-        assert u["archon"]["hourly"] == 1
-        assert u["archon"]["daily"] == 2
-        assert u["archon"]["in_flight"] == 0
-        assert u["kodo"]["in_flight"] == 1
+        assert u["dag_executor"]["hourly"] == 1
+        assert u["dag_executor"]["daily"] == 2
+        assert u["dag_executor"]["in_flight"] == 0
+        assert u["team_executor"]["in_flight"] == 1
 
     def test_backend_usage_missing_file(self, tmp_path, monkeypatch):
         from operator_console import watcher_status_pane as wsp
@@ -96,13 +92,9 @@ class TestCursesPaneCollectors:
         from operator_console import watcher_status_pane as wsp
         cfg = tmp_path / "operations_center.local.yaml"
         cfg.write_text(
-            "kodo:\n"
-            "  binary: kodo\n"
             "resource_gate:\n"
             "  max_concurrent: 6              # leave headroom for co-tenants\n"
             "  min_available_memory_mb: 12288 # reserve 12 GiB\n"
-            "archon:\n"
-            "  enabled: false\n"
         )
         monkeypatch.setattr(wsp, "_OC_CONFIG", cfg)
         assert wsp._resource_gate() == {
@@ -115,7 +107,7 @@ class TestCursesPaneCollectors:
     ):
         from operator_console import watcher_status_pane as wsp
         cfg = tmp_path / "operations_center.local.yaml"
-        cfg.write_text("kodo:\n  binary: kodo\n")
+        cfg.write_text("git:\n  provider: github\n")
         monkeypatch.setattr(wsp, "_OC_CONFIG", cfg)
         assert wsp._resource_gate() == {}
 
@@ -266,7 +258,7 @@ class TestBannerConditions:
         monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: [])
         d = self._data(
             resource_gate={"max_concurrent": 2},
-            backend_usage={"kodo": {"in_flight": 2}},
+            backend_usage={"team_executor": {"in_flight": 2}},
         )
         result = wsp._banner_conditions(d, started_at=0)
         assert any(s == wsp.BANNER_CRIT and "Global gate" in m
@@ -276,11 +268,11 @@ class TestBannerConditions:
         from operator_console import watcher_status_pane as wsp
         monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: [])
         d = self._data(
-            backend_caps={"kodo": {"max_concurrent": 1}},
-            backend_usage={"kodo": {"in_flight": 1}},
+            backend_caps={"team_executor": {"max_concurrent": 1}},
+            backend_usage={"team_executor": {"in_flight": 1}},
         )
         result = wsp._banner_conditions(d, started_at=0)
-        assert any(s == wsp.BANNER_WARN and "kodo" in m for s, m in result)
+        assert any(s == wsp.BANNER_WARN and "team_executor" in m for s, m in result)
 
     def test_queue_overflow_is_warning(self, monkeypatch):
         from operator_console import watcher_status_pane as wsp

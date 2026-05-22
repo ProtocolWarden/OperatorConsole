@@ -220,7 +220,7 @@ cd ~/Documents/GitHub/PlatformDeployment && ./scripts/up.sh
 ```
 
 **Run failed (backend not installed):**
-`failure_category=backend_error` is expected when a backend binary (`kodo`,
+`failure_category=backend_error` is expected when a backend binary (`team_executor`,
 `aider`, etc.) is not installed. The intake and planning pipeline ran correctly —
 only the final adapter invocation failed.
 
@@ -258,7 +258,7 @@ Runs all six steps: preflight → stack → health → route → planning → ex
 |---|---|
 | Single machine only | No distributed or multi-user support |
 | intake requires inotify-tools | Install with `sudo apt install inotify-tools`; falls back to 10s polling without it |
-| Backend binary required for execution | Execution without `kodo`/`aider` records `backend_error` — not a pipeline bug |
+| Backend binary required for execution | Execution without `team_executor`/`aider` records `backend_error` — not a pipeline bug |
 | SwitchBoard must be running | All routing calls fail if PlatformDeployment stack is down |
 | No run search | `console runs` shows recent runs by time; no filtering by status or goal |
 | Partial runs counted | `console runs` shows partial artifacts alongside complete runs |

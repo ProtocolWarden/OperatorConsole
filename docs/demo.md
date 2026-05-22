@@ -78,13 +78,13 @@ console demo --json
   ✓ SwitchBoard health: ok
 
 ── 4 · Route Selection ───────────────────────────────
-  ✓ lane=claude_cli backend=kodo
+  ✓ lane=claude_cli backend=team_executor
 
 ── 5 · Planning ──────────────────────────────────────
-  ✓ proposal=<id> task=console-demo-worker lane=claude_cli backend=kodo rule=...
+  ✓ proposal=<id> task=console-demo-worker lane=claude_cli backend=team_executor rule=...
 
 ── 6 · Execution ─────────────────────────────────────
-  · lane=claude_cli  backend=kodo
+  · lane=claude_cli  backend=team_executor
   ✓ Backend executed successfully — status=success
   · artifacts: ~/.console/operations_center/runs/<run_id>/
 
@@ -131,7 +131,7 @@ ls ~/.console/operations_center/runs/         # list all runs
 | Step 1 fails (PlatformDeployment not found) | Repo not at expected path | Clone PlatformDeployment to `~/Documents/GitHub/PlatformDeployment` |
 | Step 3 fails (HTTP 0) | SwitchBoard not running | Run `./scripts/up.sh` from PlatformDeployment |
 | Step 5 fails (exit 1) | OperationsCenter venv missing | `cd OperationsCenter && pip install -e .` |
-| Step 6 — backend failure | Backend binary not installed | Install `kodo` or `aider`; result is still canonical |
+| Step 6 — backend failure | Backend binary not installed | Install `team_executor` or `aider`; result is still canonical |
 | Step 6 — policy skipped | Policy gate blocked the task | Check SwitchBoard policy config |
 
 Step 6 returning `success=False` with `failure_category=backend_error` is **expected** when
