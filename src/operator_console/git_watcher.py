@@ -428,10 +428,12 @@ def _watcher(stdscr, repos: list[str]) -> None:
             groups, items, s_snap, b_snap, sel_item, collapsed_groups, w, C,
         )
         total_vrows = len(vbuf)
-        if sel_vrow < scroll_offset:
-            scroll_offset = sel_vrow
-        elif sel_vrow >= scroll_offset + body_h:
-            scroll_offset = sel_vrow - body_h + 1
+        # 1-row context: reveal the header above when at first repo, and the
+        # trailing separator below when at the last repo.
+        if sel_vrow - 1 < scroll_offset:
+            scroll_offset = max(0, sel_vrow - 1)
+        elif sel_vrow + 1 >= scroll_offset + body_h:
+            scroll_offset = sel_vrow + 1 - body_h + 1
         scroll_offset = max(0, min(scroll_offset, max(0, total_vrows - body_h)))
 
         _draw(
