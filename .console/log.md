@@ -335,3 +335,7 @@ top block flows behind them.
 ### ADR 0005 — Add executor repos to platform profile (2026-05-18)
 Added teamexecutor, dagexecutor, critiqueexecutor, protocolwarden to platform group.
 Created profile yamls for each with lazygit git pane and standard helpers.
+
+## 2026-05-23 — Genericize fleet-repo ref + standardize hook
+
+- Genericized SyncingSolution ref in .custodian/config.yaml comment (public repo; private fleet layer must not be named). Standardized .hooks/pre-push.
