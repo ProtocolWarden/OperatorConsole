@@ -16,7 +16,7 @@ tests_root: tests
 #   3. Any new install or setup command must work on both distros.
 #
 # Cross-repo: co-owned by NetworkRuntime (VPN scripts) and
-# SyncingSolution (tray, fleet setup).
+# the fleet sync repo (tray, fleet setup).
 # Reference: NetworkRuntime/README.md § OS symmetry invariant.
 
 # OS-SYM1 / OS-SYM1S detectors enforce the package-manager symmetry invariant
