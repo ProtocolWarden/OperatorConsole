@@ -372,3 +372,7 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 - launcher._multi_pane_block: cross-repo group tab cwd → PlatformManifest (was bare ~/Documents/GitHub). git-watcher still spans all group repos.
 - bootstrap.get_claude_command: wrapper now exports CL_ANCHOR=<cwd> so OC-launched sessions satisfy the CL guard hooks (which now hard-require CL_ANCHOR, no CWD fallback). Single-repo tabs anchor at their repo; group tab at PlatformManifest.
 - Added tests/test_anchor_launch.py (2 tests). NOTE: pre-existing test_watcher_pane.py failures are unrelated (confirmed on clean main).
+
+## 2026-05-24 — Fix stale cxrp test fixtures (0.2 → 0.3)
+
+- tests/test_cxrp_capture.py hardcoded schema_version "0.2" but cxrp is at 0.3 (envelope schema const "0.3"). Bumped the 4 envelope schema_version fixtures/assertions to "0.3"; left the separate nested $payload_schema coding_agent_target/v0.2 ref (consistent with code). Full OC suite green.
