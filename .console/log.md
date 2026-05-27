@@ -1,5 +1,32 @@
 # Log
 
+## 2026-05-26 — Repair pre-existing watcher_pane tests
+
+Fixed 9 stale/regressed failures in tests/test_watcher_pane.py.
+
+- Banner-message tests (healthy/switchboard/gate/queue/info): STALE tests. The
+  banner copy was intentionally title-cased and reworded ("All Systems Nominal",
+  "SwitchBoard Offline", "Global Gate at Cap", "Queue Depth", "Stabilizing").
+  Updated assertions to the current strings.
+- test_exec_budget_reads_usage: STALE test — it never isolated _resource_gate(),
+  which reads the real on-disk OC config; gate values shadow the env caps the
+  test sets, so daily_cap came back as the config's value. Added a monkeypatch
+  stubbing _resource_gate -> {} so the env-override path is the one exercised.
+- test_critical_sorts_before_warning_sorts_before_info: STALE premise — the
+  "just started" INFO banner is intentionally PINNED to the front of the cycle,
+  so a linear crit<warn<info ordering can't hold within 30s of launch. Split
+  into test_critical_sorts_before_warning (pure severity order, started_at=0)
+  and test_just_started_info_is_pinned_to_front (documents the pinning).
+- test_overflow_proportional / test_collapsed_during_overflow: REAL code bug.
+  _allocate_section_rows did no overflow scaling and over-allocated far past the
+  available rows (42/31 vs cap 10). Added proportional down-scaling on overflow
+  with a min(3, natural) floor; natural-fit, size_mult, collapsed, and empty
+  paths preserved.
+
+tests/test_watcher_pane.py: 27 passed. Full suite: 132 passed, 3 failed —
+the 3 are pre-existing cxrp schema_version 0.2-vs-0.3 mismatches in
+tests/test_cxrp_capture.py, unrelated to this change. Custodian clean.
+
 ## 2026-05-22 — Rename ContextLifecycleProtocol → ContextLifecycle
 
 Hard cutover. Renamed profile file from `contextlifecycleprotocol.yaml` to `contextlifecycle.yaml`. Updated all references in config, git_watcher, and platform.yaml.
