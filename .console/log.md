@@ -376,3 +376,7 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 ## 2026-05-24 — Fix stale cxrp test fixtures (0.2 → 0.3)
 
 - tests/test_cxrp_capture.py hardcoded schema_version "0.2" but cxrp is at 0.3 (envelope schema const "0.3"). Bumped the 4 envelope schema_version fixtures/assertions to "0.3"; left the separate nested $payload_schema coding_agent_target/v0.2 ref (consistent with code). Full OC suite green.
+
+## 2026-05-24 — OC panes anchor all 3 CLIs via cl session start (Phase 3)
+
+- bootstrap.get_{claude,codex,aider}_command now prepend a shared _CL_ANCHOR_PRELUDE (`eval "$(cl session start 2>/dev/null || true)"`) so every Console-launched CLI anchors at its repo OWNING MANIFEST (RepoGraph-resolved), not the bare cwd. Corrects the earlier hardcoded CL_ANCHOR=cwd. Repos not hooked to a manifest resolve to nothing → skipped. Updated tests/test_anchor_launch.py (asserts prelude across all 3 CLIs). 135 tests pass.

@@ -108,6 +108,18 @@ def write_bootstrap_file(
     return out
 
 
+# Anchor every Console-launched CLI session at its repo's *owning manifest* via
+# ContextLifecycle. `cl session start` (no arg) resolves cwd→manifest through
+# RepoGraph and emits eval-able CL_ANCHOR/CL_SESSION_ID exports. Repos not hooked
+# to a manifest resolve to nothing and are skipped (no CL) — `|| true` keeps the
+# CLI launching regardless. Claude's guard hooks then read CL_ANCHOR; codex/aider
+# use it for session-boundary cognition.
+_CL_ANCHOR_PRELUDE = (
+    "# ContextLifecycle: anchor at this repo's owning manifest (skips if unhooked).\n"
+    'eval "$(cl session start 2>/dev/null || true)"\n'
+)
+
+
 def get_claude_command(
     profile: dict,
     repo_root: Path,
@@ -138,15 +150,11 @@ def get_claude_command(
 
     sf = str(session_file).replace("'", "'\\''")
     pd = str(project_dir).replace("'", "'\\''")
-    # Anchor the session at its cwd (a manifest for group tabs, the repo for
-    # single-repo tabs). ContextLifecycle's guard hooks hard-require CL_ANCHOR
-    # and refuse to fall back to CWD, so it must be exported before launch.
-    ca = str(cwd.resolve()).replace("'", "'\\''")
 
     script = (
         "#!/usr/bin/env bash\n"
-        f"export CL_ANCHOR='{ca}'\n"
-        f"SESSION_FILE='{sf}'\n"
+        + _CL_ANCHOR_PRELUDE
+        + f"SESSION_FILE='{sf}'\n"
         f"PROJECT_DIR='{pd}'\n"
         "_save_session() {\n"
         "    newest=$(ls -t \"$PROJECT_DIR\"/*.jsonl 2>/dev/null | head -1)\n"
@@ -201,7 +209,8 @@ def get_codex_command(
 
     not_found_block = (
         "#!/usr/bin/env bash\n"
-        f"if ! command -v '{safe_bin}' &>/dev/null; then\n"
+        + _CL_ANCHOR_PRELUDE
+        + f"if ! command -v '{safe_bin}' &>/dev/null; then\n"
         "  echo 'codex CLI not found.'\n"
         "  echo 'Install: npm install -g @openai/codex'\n"
         "  exec bash -l\n"
@@ -282,7 +291,8 @@ def get_aider_command(
 
     not_found_block = (
         "#!/usr/bin/env bash\n"
-        f"if ! command -v '{safe_bin}' &>/dev/null; then\n"
+        + _CL_ANCHOR_PRELUDE
+        + f"if ! command -v '{safe_bin}' &>/dev/null; then\n"
         "  echo 'aider not found.'\n"
         "  echo 'Install: pip install aider-chat'\n"
         "  exec bash -l\n"
