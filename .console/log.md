@@ -1,5 +1,9 @@
 # Log
 
+## 2026-05-27 — Wire provision-machine.sh into setup.sh
+
+setup.sh now calls PlatformManifest/scripts/provision-machine.sh after the local bootstrap. Passes through --with-private and --force-hooks flags; --skip-provision keeps the old local-only behavior.
+
 ## 2026-05-26 — Repair pre-existing watcher_pane tests
 
 Fixed 9 stale/regressed failures in tests/test_watcher_pane.py.
