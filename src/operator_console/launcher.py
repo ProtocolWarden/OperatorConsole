@@ -110,20 +110,25 @@ def _multi_pane_block(
     indent: str = "        ",
     tab_name: str | None = None,
 ) -> str:
-    safe_cwd    = str(_GITHUB_DIR).replace("'", "'\\''")
+    # Cross-repo group tabs anchor at PlatformManifest (the ecosystem manifest /
+    # cognition host) rather than the bare workspace root — so the session has a
+    # valid CL_ANCHOR (see bootstrap.get_claude_command) instead of an
+    # un-anchored ~/Documents/GitHub. The git-watcher still spans all group repos.
+    group_cwd   = _GITHUB_DIR / "PlatformManifest"
+    safe_cwd    = str(group_cwd).replace("'", "'\\''")
     session_key = tab_name or _multi_tab_name(profiles)
     i = indent
 
     claude_cmd = get_claude_command(
         profiles[0], Path(profiles[0]["repo_root"]),
-        console_dir=console_dir, session_key=session_key, claude_cwd=_GITHUB_DIR,
+        console_dir=console_dir, session_key=session_key, claude_cwd=group_cwd,
     )
     codex_cmd = get_codex_command(
-        profiles[0], _GITHUB_DIR,
+        profiles[0], group_cwd,
         console_dir=console_dir, session_key=session_key,
     )
     aider_cmd = get_aider_command(
-        profiles[0], _GITHUB_DIR,
+        profiles[0], group_cwd,
         console_dir=console_dir, session_key=session_key,
     )
 

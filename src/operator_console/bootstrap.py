@@ -138,9 +138,14 @@ def get_claude_command(
 
     sf = str(session_file).replace("'", "'\\''")
     pd = str(project_dir).replace("'", "'\\''")
+    # Anchor the session at its cwd (a manifest for group tabs, the repo for
+    # single-repo tabs). ContextLifecycle's guard hooks hard-require CL_ANCHOR
+    # and refuse to fall back to CWD, so it must be exported before launch.
+    ca = str(cwd.resolve()).replace("'", "'\\''")
 
     script = (
         "#!/usr/bin/env bash\n"
+        f"export CL_ANCHOR='{ca}'\n"
         f"SESSION_FILE='{sf}'\n"
         f"PROJECT_DIR='{pd}'\n"
         "_save_session() {\n"

@@ -339,3 +339,9 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 ## 2026-05-23 — Genericize fleet-repo ref + standardize hook
 
 - Genericized SyncingSolution ref in .custodian/config.yaml comment (public repo; private fleet layer must not be named). Standardized .hooks/pre-push.
+
+## 2026-05-24 — Platform tab anchors at PlatformManifest + export CL_ANCHOR
+
+- launcher._multi_pane_block: cross-repo group tab cwd → PlatformManifest (was bare ~/Documents/GitHub). git-watcher still spans all group repos.
+- bootstrap.get_claude_command: wrapper now exports CL_ANCHOR=<cwd> so OC-launched sessions satisfy the CL guard hooks (which now hard-require CL_ANCHOR, no CWD fallback). Single-repo tabs anchor at their repo; group tab at PlatformManifest.
+- Added tests/test_anchor_launch.py (2 tests). NOTE: pre-existing test_watcher_pane.py failures are unrelated (confirmed on clean main).
