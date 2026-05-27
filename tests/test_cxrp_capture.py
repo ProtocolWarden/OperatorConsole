@@ -39,7 +39,7 @@ def test_build_task_proposal_returns_ecp_envelope():
     )
     assert isinstance(tp, CxrpTaskProposal)
     assert tp.contract_kind == "task_proposal"
-    assert tp.schema_version == "0.2"
+    assert tp.schema_version == "0.3"
 
 
 def test_build_task_proposal_validates_against_schema():
@@ -77,7 +77,7 @@ def test_build_task_proposal_does_not_infer_task_type_or_risk():
 
 def test_parse_execution_result_returns_typed_object():
     valid = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "contract_kind": "execution_result",
         "result_id": "ers-1",
         "metadata": {},
@@ -100,7 +100,7 @@ def test_parse_execution_result_returns_typed_object():
 
 def test_parse_execution_result_rejects_invalid_status():
     invalid = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "contract_kind": "execution_result",
         "result_id": "ers-1",
         "metadata": {},
@@ -114,7 +114,7 @@ def test_parse_execution_result_rejects_invalid_status():
 
 def test_summarize_execution_result_renders_one_liner():
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "contract_kind": "execution_result",
         "result_id": "ers-1",
         "metadata": {},
