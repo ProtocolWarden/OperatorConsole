@@ -16,6 +16,10 @@ class TestCursesPaneCollectors:
             json.dumps({"hourly_exec_count": 7, "daily_exec_count": 33})
         )
         monkeypatch.setattr(wsp, "_USAGE_PATH", target / "usage.json")
+        # Isolate from any on-disk resource_gate so the env-override path
+        # (the behaviour this test verifies) is the one actually exercised;
+        # gate values take precedence over env when present.
+        monkeypatch.setattr(wsp, "_resource_gate", lambda: {})
         monkeypatch.setenv("OPERATIONS_CENTER_MAX_EXEC_PER_HOUR", "12")
         monkeypatch.setenv("OPERATIONS_CENTER_MAX_EXEC_PER_DAY", "60")
         b = wsp._exec_budget()
@@ -238,7 +242,7 @@ class TestBannerConditions:
         result = wsp._banner_conditions(self._data(), started_at=0)
         assert len(result) == 1
         assert result[0][0] == wsp.BANNER_HEALTHY
-        assert "nominal" in result[0][1]
+        assert "Nominal" in result[0][1]
 
     def test_critical_stall_takes_precedence(self, monkeypatch):
         from operator_console import watcher_status_pane as wsp
@@ -251,7 +255,7 @@ class TestBannerConditions:
         from operator_console import watcher_status_pane as wsp
         monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: [])
         result = wsp._banner_conditions(self._data(sb=False), started_at=0)
-        assert any("SwitchBoard offline" in m for _, m in result)
+        assert any("SwitchBoard Offline" in m for _, m in result)
 
     def test_resource_gate_at_cap_is_critical(self, monkeypatch):
         from operator_console import watcher_status_pane as wsp
@@ -261,7 +265,7 @@ class TestBannerConditions:
             backend_usage={"team_executor": {"in_flight": 2}},
         )
         result = wsp._banner_conditions(d, started_at=0)
-        assert any(s == wsp.BANNER_CRIT and "Global gate" in m
+        assert any(s == wsp.BANNER_CRIT and "Global Gate" in m
                    for s, m in result)
 
     def test_backend_saturation_is_warning(self, monkeypatch):
@@ -279,7 +283,7 @@ class TestBannerConditions:
         monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: [])
         d = self._data(queue=[{"task_type": "goal"}] * 12)
         result = wsp._banner_conditions(d, started_at=0)
-        assert any(s == wsp.BANNER_WARN and "Queue depth" in m
+        assert any(s == wsp.BANNER_WARN and "Queue Depth" in m
                    for s, m in result)
 
     def test_info_banner_during_first_30_seconds(self, monkeypatch):
@@ -287,22 +291,37 @@ class TestBannerConditions:
         from operator_console import watcher_status_pane as wsp
         monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: [])
         result = wsp._banner_conditions(self._data(), started_at=time.time())
-        assert any(s == wsp.BANNER_INFO and "stabilizing" in m
+        assert any(s == wsp.BANNER_INFO and "Stabilizing" in m
                    for s, m in result)
 
-    def test_critical_sorts_before_warning_sorts_before_info(
-        self, monkeypatch,
-    ):
+    def test_critical_sorts_before_warning(self, monkeypatch):
+        from operator_console import watcher_status_pane as wsp
+        monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: ["goal"])
+        d = self._data(
+            queue=[{"task_type": "goal"}] * 12,
+        )
+        # started_at far in the past: no "just started" INFO is injected,
+        # so we observe the pure severity-sorted order.
+        result = wsp._banner_conditions(d, started_at=0)
+        levels = [s for s, _ in result]
+        # CRIT (stall) should come before WARN (queue depth).
+        crit_idx = levels.index(wsp.BANNER_CRIT)
+        warn_idx = levels.index(wsp.BANNER_WARN)
+        assert crit_idx < warn_idx
+
+    def test_just_started_info_is_pinned_to_front(self, monkeypatch):
         import time
         from operator_console import watcher_status_pane as wsp
         monkeypatch.setattr(wsp, "_stale_heartbeat_roles", lambda: ["goal"])
         d = self._data(
             queue=[{"task_type": "goal"}] * 12,
         )
+        # Within the first 30s the "stabilizing" INFO is pinned to the
+        # front of the cycle so operators see it first on launch, even
+        # when CRITICAL conditions are also active.
         result = wsp._banner_conditions(d, started_at=time.time())
-        levels = [s for s, _ in result]
-        # CRIT (stall) should come before WARN (queue depth) before INFO.
-        crit_idx = levels.index(wsp.BANNER_CRIT)
-        warn_idx = levels.index(wsp.BANNER_WARN)
-        info_idx = levels.index(wsp.BANNER_INFO)
-        assert crit_idx < warn_idx < info_idx
+        assert result[0][0] == wsp.BANNER_INFO
+        assert "Stabilizing" in result[0][1]
+        # The severity ordering still holds for the remaining conditions.
+        rest = [s for s, _ in result[1:]]
+        assert rest.index(wsp.BANNER_CRIT) < rest.index(wsp.BANNER_WARN)

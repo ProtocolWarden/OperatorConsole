@@ -1169,28 +1169,98 @@ def _allocate_section_rows(
 ) -> list[int]:
     """Decide how many on-screen rows each section gets.
 
-    Each section gets its full natural height (collapsed = 1 row,
-    expanded = ``len(lines) * size_mult.get(id, 1.0)``, rounded up).
-    No proportional scaling on overflow — the render loop truncates
-    at ``middle_bottom``, so sections later in the list lose visibility
-    when earlier expanded sections use up the available space. The
-    operator manages overflow by collapsing sections, not by resizing.
+    Each section's *natural* height is collapsed = 1 row, expanded =
+    ``len(lines) * size_mult.get(id, 1.0)`` (rounded up), and empty = 0.
+
+    When the natural heights fit within ``available_rows`` they are
+    returned unchanged. On overflow the expanded (non-collapsed,
+    non-empty) sections are scaled down proportionally to their natural
+    height so the total fits, with a per-section floor of ``min(3,
+    natural)`` rows so every visible section keeps a usable slice.
+    Collapsed sections always keep their single row; empty sections
+    always get zero.
     """
     collapsed = collapsed or {}
     size_mult = size_mult or {}
     if available_rows <= 0 or not sections:
         return [0] * len(sections)
-    from math import ceil
-    out: list[int] = []
+    from math import ceil, floor
+
+    natural: list[int] = []
     for s in sections:
         if not s["lines"]:
-            out.append(0)
-            continue
-        if collapsed.get(s["id"], False):
-            out.append(1)
-            continue
-        mult = size_mult.get(s["id"], 1.0)
-        out.append(max(1, ceil(len(s["lines"]) * mult)))
+            natural.append(0)
+        elif collapsed.get(s["id"], False):
+            natural.append(1)
+        else:
+            mult = size_mult.get(s["id"], 1.0)
+            natural.append(max(1, ceil(len(s["lines"]) * mult)))
+
+    if sum(natural) <= available_rows:
+        return natural
+
+    # Overflow: fixed rows = collapsed (1 each) + empty (0). Distribute the
+    # remaining budget across the expandable sections proportionally.
+    expand_idx = [
+        i for i, s in enumerate(sections)
+        if s["lines"] and not collapsed.get(s["id"], False)
+    ]
+    out = list(natural)
+    fixed = sum(out[i] for i in range(len(sections)) if i not in expand_idx)
+    budget = available_rows - fixed
+    if budget <= 0 or not expand_idx:
+        # No room left for expandable content; give each at most 1 row,
+        # trimming from the end until we fit.
+        for i in expand_idx:
+            out[i] = 1
+        while sum(out) > available_rows and expand_idx:
+            out[expand_idx.pop()] = 0
+        return out
+
+    total_natural = sum(natural[i] for i in expand_idx)
+    floors = {i: min(3, natural[i]) for i in expand_idx}
+    if sum(floors.values()) >= budget:
+        # Even the floors don't fit — hand out the budget one row at a
+        # time, largest-natural first, so no section is starved unfairly.
+        for i in expand_idx:
+            out[i] = 0
+        order = sorted(expand_idx, key=lambda i: natural[i], reverse=True)
+        remaining = budget
+        while remaining > 0:
+            progressed = False
+            for i in order:
+                if remaining <= 0:
+                    break
+                if out[i] < natural[i]:
+                    out[i] += 1
+                    remaining -= 1
+                    progressed = True
+            if not progressed:
+                break
+        return out
+
+    # Proportional share above the floor.
+    extra = budget - sum(floors.values())
+    weights = {i: natural[i] / total_natural for i in expand_idx}
+    alloc = {i: floors[i] + floor(extra * weights[i]) for i in expand_idx}
+    for i in expand_idx:
+        alloc[i] = min(alloc[i], natural[i])
+    # Distribute any leftover rows (from flooring) to largest natural first.
+    leftover = budget - sum(alloc.values())
+    order = sorted(expand_idx, key=lambda i: natural[i], reverse=True)
+    while leftover > 0:
+        progressed = False
+        for i in order:
+            if leftover <= 0:
+                break
+            if alloc[i] < natural[i]:
+                alloc[i] += 1
+                leftover -= 1
+                progressed = True
+        if not progressed:
+            break
+    for i in expand_idx:
+        out[i] = alloc[i]
     return out
 
 
