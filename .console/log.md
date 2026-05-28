@@ -394,3 +394,7 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 ## 2026-05-27 — Fix: source ~/.bashrc in anchor prelude (CL_HOME not in zellij pane env)
 
 `_CL_ANCHOR_PRELUDE` now sources `~/.bashrc` before resolving `cl`. Zellij panes are non-login non-interactive shells — they don't source `~/.bashrc`, so `CL_HOME` and PATH were unset, causing `cl session start` to silently fail and `CL_ANCHOR` to stay unset.
+
+## 2026-05-27 — Fix: revert shell pane to bash -l (bash --rcfile -i caused stuck pane)
+
+Reverted the shell pane loop back to `while true; do bash -l; sleep 1; done`. The `bash --rcfile file -i` variant caused a stuck blinking cursor — bash with `-i` inside a zellij subshell loop does not present a prompt correctly. The `claude()` re-anchor function only needs to be in the post-claude drop-to-shell (exec bash --rcfile), not the shell pane loop.
