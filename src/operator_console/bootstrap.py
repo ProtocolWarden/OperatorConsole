@@ -26,7 +26,6 @@ PEER_FILES = [
 
 def _get_branch(repo_root: Path) -> str:
     try:
-        import subprocess
         r = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True,
@@ -111,19 +110,12 @@ def write_bootstrap_file(
 
 
 # ── ContextLifecycle anchoring ────────────────────────────────────────────────
-#
-# Every Console-launched CLI session anchors at its repo's *owning manifest* via
-# `cl session start`, which resolves cwd→manifest through RepoGraph and emits
-# eval-able CL_ANCHOR/CL_SESSION_ID exports. Repos not hooked to a manifest
-# resolve to nothing and launch unanchored (the prelude becomes a no-op).
-#
-# Finding `cl` is the tricky part. CL_HOME is *machine state* — the local clone
-# path of ContextLifecycle, which differs per machine — so it can't live in a
-# repo. Provision records it in ~/.bashrc and ~/.claude/settings.json, but
-# zellij panes run non-interactive, non-login shells that source NEITHER. So we
-# resolve `cl` once, here, in the `console` process (which inherits CL_HOME from
-# the interactive shell that launched it) and bake the literal path into every
-# generated wrapper. No runtime resolution in the pane shell.
+# Console-launched CLIs anchor at their owning manifest via `cl session start`.
+# CL_HOME is machine state (the local CL clone path) so it can't live in a repo,
+# and zellij panes are non-interactive non-login shells that source neither
+# ~/.bashrc nor ~/.claude/settings.json. So we resolve `cl` once here — in the
+# console process, which inherits CL_HOME from its launching shell — and bake the
+# literal path into every generated wrapper rather than re-resolving in the pane.
 
 
 def _resolve_cl_bin() -> str:

@@ -20,6 +20,10 @@ prelude is an inert comment (session launches unanchored, never errors).
 Verified with `env -i` (clean env, no CL_HOME — mimics a pane): baked path
 anchors CL_ANCHOR correctly where `source ~/.bashrc` produced nothing.
 
+Custodian follow-up: documented CL_HOME in `.env.example` (E1) and trimmed the
+comment + a redundant local import to keep bootstrap.py under the 500-line cap
+(C29).
+
 ## 2026-05-27 — Wire provision-machine.sh into setup.sh
 
 setup.sh now calls PlatformManifest/scripts/provision-machine.sh after the local bootstrap. Passes through --with-private and --force-hooks flags; --skip-provision keeps the old local-only behavior.
