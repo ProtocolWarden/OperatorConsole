@@ -114,12 +114,19 @@ def write_bootstrap_file(
 # to a manifest resolve to nothing and are skipped (no CL) — the CLI launches
 # unanchored, cl_wrap stays a no-op.
 #
-# Sources ~/.bashrc first so CL_HOME and PATH are populated in non-login shells
-# (zellij panes do not source shell profiles automatically).
+# CL_HOME resolution order:
+#   1. CL_HOME already in env (login shell, or previously provisioned)
+#   2. ~/.claude/settings.json env.CL_HOME — machine-provisioned, always present,
+#      reliable in non-interactive/non-login zellij panes (source ~/.bashrc is a
+#      no-op there because most .bashrc files guard against non-interactive shells)
+#   3. PATH lookup via `command -v cl`
 _CL_ANCHOR_PRELUDE = (
-    "# ContextLifecycle: source profile so CL_HOME/PATH are available, then anchor.\n"
-    '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null\n'
+    "# ContextLifecycle: resolve cl, then anchor via `cl session start`.\n"
     '_CL_BIN="${CL_HOME:+$CL_HOME/bin/cl}"\n'
+    'if [ -z "$_CL_BIN" ] || [ ! -x "$_CL_BIN" ]; then\n'
+    '  _CL_HOME=$(python3 -c "import json,pathlib; p=pathlib.Path.home()/\'.claude/settings.json\'; d=json.loads(p.read_text()) if p.exists() else {}; print(d.get(\'env\',{}).get(\'CL_HOME\',\'\'))" 2>/dev/null)\n'
+    '  [ -n "$_CL_HOME" ] && _CL_BIN="$_CL_HOME/bin/cl"\n'
+    'fi\n'
     '_CL_BIN="${_CL_BIN:-$(command -v cl 2>/dev/null || true)}"\n'
     '[ -n "$_CL_BIN" ] && [ -x "$_CL_BIN" ] && eval "$($_CL_BIN session start 2>/dev/null || true)"\n'
 )
@@ -163,6 +170,12 @@ def get_claude_command(
         "[ -f ~/.bashrc ] && source ~/.bashrc\n"
         "claude() {\n"
         "    local _cl=\"${CL_HOME:+$CL_HOME/bin/cl}\"\n"
+        "    if [ -z \"$_cl\" ] || [ ! -x \"$_cl\" ]; then\n"
+        "        local _h\n"
+        "        _h=$(python3 -c \"import json,pathlib; p=pathlib.Path.home()/'.claude/settings.json';"
+        " d=json.loads(p.read_text()) if p.exists() else {}; print(d.get('env',{}).get('CL_HOME',''))\" 2>/dev/null)\n"
+        "        [ -n \"$_h\" ] && _cl=\"$_h/bin/cl\"\n"
+        "    fi\n"
         "    _cl=\"${_cl:-$(command -v cl 2>/dev/null)}\"\n"
         "    [ -n \"$_cl\" ] && [ -x \"$_cl\" ] && eval \"$($_cl session start 2>/dev/null || true)\"\n"
         "    command claude \"$@\"\n"

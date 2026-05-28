@@ -1,5 +1,16 @@
 # Log
 
+## 2026-05-27 — Fix CL_HOME resolution in non-interactive panes
+
+`source ~/.bashrc` is a no-op in zellij panes because most `.bashrc` files guard
+against non-interactive shells (`[[ $- != *i* ]] && return`). As a result,
+`CL_HOME` was never set in pane subshells, `cl session start` silently failed,
+and every console-launched CLI opened without `CL_ANCHOR`.
+
+Fixed `_CL_ANCHOR_PRELUDE` in `bootstrap.py` to fall back to reading `CL_HOME`
+from `~/.claude/settings.json` (machine-provisioned, always reliable) before
+the PATH lookup. Same fix applied to the `claude()` wrapper in the rc file.
+
 ## 2026-05-27 — Wire provision-machine.sh into setup.sh
 
 setup.sh now calls PlatformManifest/scripts/provision-machine.sh after the local bootstrap. Passes through --with-private and --force-hooks flags; --skip-provision keeps the old local-only behavior.
