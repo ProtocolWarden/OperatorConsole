@@ -1,5 +1,15 @@
 # Log
 
+## 2026-05-28 — Wire ContextGuard hooks into OperatorConsole
+
+OC previously carried no `.claude/` hooks, so developing OC itself ran without
+anchor enforcement. Added the committed executor-shim pair
+(`.claude/hooks/pre_tool_use.sh` + `stop.sh`) and `.claude/settings.json`,
+mirroring TeamExecutor/CritiqueExecutor exactly — the shim delegates to
+`cl hook ...`. OC resolves its anchor to PlatformManifest via RepoGraph
+(verified). PlatformManifest's provision-machine.sh now lists OperatorConsole in
+COMMITTED_HOOK_REPOS so the hook-health check verifies it.
+
 ## 2026-05-27 — Redesign CL anchoring: resolve cl once, bake the path
 
 Replaced the runtime resolution dance (repeated in 3 wrapper builders + the rc
