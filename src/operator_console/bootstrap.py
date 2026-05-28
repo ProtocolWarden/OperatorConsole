@@ -112,10 +112,13 @@ def write_bootstrap_file(
 # ContextLifecycle. `cl session start` (no arg) resolves cwd→manifest through
 # RepoGraph and emits eval-able CL_ANCHOR/CL_SESSION_ID exports. Repos not hooked
 # to a manifest resolve to nothing and are skipped (no CL) — the CLI launches
-# unanchored, cl_wrap stays a no-op. Uses CL_HOME-relative path so the prelude
-# works even in non-login shells where ~/.bashrc hasn't been sourced.
+# unanchored, cl_wrap stays a no-op.
+#
+# Sources ~/.bashrc first so CL_HOME and PATH are populated in non-login shells
+# (zellij panes do not source shell profiles automatically).
 _CL_ANCHOR_PRELUDE = (
-    "# ContextLifecycle: anchor at this repo's owning manifest (skips if unhooked).\n"
+    "# ContextLifecycle: source profile so CL_HOME/PATH are available, then anchor.\n"
+    '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null\n'
     '_CL_BIN="${CL_HOME:+$CL_HOME/bin/cl}"\n'
     '_CL_BIN="${_CL_BIN:-$(command -v cl 2>/dev/null || true)}"\n'
     '[ -n "$_CL_BIN" ] && [ -x "$_CL_BIN" ] && eval "$($_CL_BIN session start 2>/dev/null || true)"\n'

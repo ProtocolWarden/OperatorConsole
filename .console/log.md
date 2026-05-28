@@ -390,3 +390,7 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 `bootstrap.py`: `_CL_ANCHOR_PRELUDE` now resolves `cl` via `CL_HOME` (works in non-login shells); `get_claude_command` writes a shared `console-rc-{key}.sh` that defines `claude()` with auto-anchor, used by the post-claude shell and the shell pane.
 `launcher.py`: shell pane (`while true`) uses `bash --rcfile /tmp/console-rc-{key}.sh` so typing `claude` from that pane re-anchors automatically.
 `tests/test_anchor_launch.py`: updated assertion to match new prelude shape (`session start` + `_CL_BIN`).
+
+## 2026-05-27 — Fix: source ~/.bashrc in anchor prelude (CL_HOME not in zellij pane env)
+
+`_CL_ANCHOR_PRELUDE` now sources `~/.bashrc` before resolving `cl`. Zellij panes are non-login non-interactive shells — they don't source `~/.bashrc`, so `CL_HOME` and PATH were unset, causing `cl session start` to silently fail and `CL_ANCHOR` to stay unset.
