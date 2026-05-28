@@ -384,3 +384,9 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 ## 2026-05-24 — OC panes anchor all 3 CLIs via cl session start (Phase 3)
 
 - bootstrap.get_{claude,codex,aider}_command now prepend a shared _CL_ANCHOR_PRELUDE (`eval "$(cl session start 2>/dev/null || true)"`) so every Console-launched CLI anchors at its repo OWNING MANIFEST (RepoGraph-resolved), not the bare cwd. Corrects the earlier hardcoded CL_ANCHOR=cwd. Repos not hooked to a manifest resolve to nothing → skipped. Updated tests/test_anchor_launch.py (asserts prelude across all 3 CLIs). 135 tests pass.
+
+## 2026-05-27 — Fix: re-anchor claude in pane shells after session exit
+
+`bootstrap.py`: `_CL_ANCHOR_PRELUDE` now resolves `cl` via `CL_HOME` (works in non-login shells); `get_claude_command` writes a shared `console-rc-{key}.sh` that defines `claude()` with auto-anchor, used by the post-claude shell and the shell pane.
+`launcher.py`: shell pane (`while true`) uses `bash --rcfile /tmp/console-rc-{key}.sh` so typing `claude` from that pane re-anchors automatically.
+`tests/test_anchor_launch.py`: updated assertion to match new prelude shape (`session start` + `_CL_BIN`).

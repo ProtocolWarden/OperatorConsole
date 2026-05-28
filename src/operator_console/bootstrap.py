@@ -111,12 +111,14 @@ def write_bootstrap_file(
 # Anchor every Console-launched CLI session at its repo's *owning manifest* via
 # ContextLifecycle. `cl session start` (no arg) resolves cwd→manifest through
 # RepoGraph and emits eval-able CL_ANCHOR/CL_SESSION_ID exports. Repos not hooked
-# to a manifest resolve to nothing and are skipped (no CL) — `|| true` keeps the
-# CLI launching regardless. Claude's guard hooks then read CL_ANCHOR; codex/aider
-# use it for session-boundary cognition.
+# to a manifest resolve to nothing and are skipped (no CL) — the CLI launches
+# unanchored, cl_wrap stays a no-op. Uses CL_HOME-relative path so the prelude
+# works even in non-login shells where ~/.bashrc hasn't been sourced.
 _CL_ANCHOR_PRELUDE = (
     "# ContextLifecycle: anchor at this repo's owning manifest (skips if unhooked).\n"
-    'eval "$(cl session start 2>/dev/null || true)"\n'
+    '_CL_BIN="${CL_HOME:+$CL_HOME/bin/cl}"\n'
+    '_CL_BIN="${_CL_BIN:-$(command -v cl 2>/dev/null || true)}"\n'
+    '[ -n "$_CL_BIN" ] && [ -x "$_CL_BIN" ] && eval "$($_CL_BIN session start 2>/dev/null || true)"\n'
 )
 
 
@@ -151,6 +153,22 @@ def get_claude_command(
     sf = str(session_file).replace("'", "'\\''")
     pd = str(project_dir).replace("'", "'\\''")
 
+    # RC file: sourced by the post-claude shell and by the shell pane so that
+    # typing `claude` in either context re-anchors automatically.
+    rc_path = Path(tempfile.gettempdir()) / f"console-rc-{key}.sh"
+    rc_path.write_text(
+        "[ -f ~/.bashrc ] && source ~/.bashrc\n"
+        "claude() {\n"
+        "    local _cl=\"${CL_HOME:+$CL_HOME/bin/cl}\"\n"
+        "    _cl=\"${_cl:-$(command -v cl 2>/dev/null)}\"\n"
+        "    [ -n \"$_cl\" ] && [ -x \"$_cl\" ] && eval \"$($_cl session start 2>/dev/null || true)\"\n"
+        "    command claude \"$@\"\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    rc_path.chmod(0o755)
+    src = str(rc_path).replace("'", "'\\''")
+
     script = (
         "#!/usr/bin/env bash\n"
         + _CL_ANCHOR_PRELUDE
@@ -167,7 +185,8 @@ def get_claude_command(
         "    claude\n"
         "fi\n"
         "_save_session\n"
-        "exec bash -l\n"
+        # Drop to an interactive shell where `claude` re-anchors automatically.
+        f"exec bash --rcfile '{src}' -i\n"
     )
 
     script_path = Path(tempfile.gettempdir()) / f"console-claude-{key}.sh"
