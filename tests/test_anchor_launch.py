@@ -33,7 +33,9 @@ def test_all_three_cli_wrappers_anchor_via_cl_session_start(tmp_path):
     for builder in (get_claude_command, get_codex_command, get_aider_command):
         cmd = builder(profile, tmp_path / "repo", console_dir=console_dir, session_key="platform")
         script = _script_of(cmd)
-        assert "cl session start" in script, f"{builder.__name__} missing anchor prelude"
+        # Prelude resolves cl via CL_HOME, then calls `cl session start`.
+        assert "session start" in script, f"{builder.__name__} missing anchor prelude"
+        assert "_CL_BIN" in script
         # No hardcoded cwd-as-anchor (the old, wrong behavior).
         assert "export CL_ANCHOR='" not in script
 
