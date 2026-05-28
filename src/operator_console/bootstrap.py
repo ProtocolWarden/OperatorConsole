@@ -2,6 +2,8 @@
 # Copyright (C) 2026 ProtocolWarden
 """Generate Claude context from repo-local .console/ state files."""
 from __future__ import annotations
+import json
+import os
 import shutil
 import subprocess
 from datetime import datetime
@@ -108,28 +110,58 @@ def write_bootstrap_file(
     return out
 
 
-# Anchor every Console-launched CLI session at its repo's *owning manifest* via
-# ContextLifecycle. `cl session start` (no arg) resolves cwd→manifest through
-# RepoGraph and emits eval-able CL_ANCHOR/CL_SESSION_ID exports. Repos not hooked
-# to a manifest resolve to nothing and are skipped (no CL) — the CLI launches
-# unanchored, cl_wrap stays a no-op.
+# ── ContextLifecycle anchoring ────────────────────────────────────────────────
 #
-# CL_HOME resolution order:
-#   1. CL_HOME already in env (login shell, or previously provisioned)
-#   2. ~/.claude/settings.json env.CL_HOME — machine-provisioned, always present,
-#      reliable in non-interactive/non-login zellij panes (source ~/.bashrc is a
-#      no-op there because most .bashrc files guard against non-interactive shells)
-#   3. PATH lookup via `command -v cl`
-_CL_ANCHOR_PRELUDE = (
-    "# ContextLifecycle: resolve cl, then anchor via `cl session start`.\n"
-    '_CL_BIN="${CL_HOME:+$CL_HOME/bin/cl}"\n'
-    'if [ -z "$_CL_BIN" ] || [ ! -x "$_CL_BIN" ]; then\n'
-    '  _CL_HOME=$(python3 -c "import json,pathlib; p=pathlib.Path.home()/\'.claude/settings.json\'; d=json.loads(p.read_text()) if p.exists() else {}; print(d.get(\'env\',{}).get(\'CL_HOME\',\'\'))" 2>/dev/null)\n'
-    '  [ -n "$_CL_HOME" ] && _CL_BIN="$_CL_HOME/bin/cl"\n'
-    'fi\n'
-    '_CL_BIN="${_CL_BIN:-$(command -v cl 2>/dev/null || true)}"\n'
-    '[ -n "$_CL_BIN" ] && [ -x "$_CL_BIN" ] && eval "$($_CL_BIN session start 2>/dev/null || true)"\n'
-)
+# Every Console-launched CLI session anchors at its repo's *owning manifest* via
+# `cl session start`, which resolves cwd→manifest through RepoGraph and emits
+# eval-able CL_ANCHOR/CL_SESSION_ID exports. Repos not hooked to a manifest
+# resolve to nothing and launch unanchored (the prelude becomes a no-op).
+#
+# Finding `cl` is the tricky part. CL_HOME is *machine state* — the local clone
+# path of ContextLifecycle, which differs per machine — so it can't live in a
+# repo. Provision records it in ~/.bashrc and ~/.claude/settings.json, but
+# zellij panes run non-interactive, non-login shells that source NEITHER. So we
+# resolve `cl` once, here, in the `console` process (which inherits CL_HOME from
+# the interactive shell that launched it) and bake the literal path into every
+# generated wrapper. No runtime resolution in the pane shell.
+
+
+def _resolve_cl_bin() -> str:
+    """Absolute path to the ContextLifecycle `cl` binary, or "" if unavailable.
+
+    Order: CL_HOME env → ~/.claude/settings.json env.CL_HOME → `cl` on PATH.
+    """
+    cl_home = os.environ.get("CL_HOME", "")
+    if not cl_home:
+        try:
+            settings = Path.home() / ".claude" / "settings.json"
+            if settings.exists():
+                data = json.loads(settings.read_text(encoding="utf-8"))
+                cl_home = data.get("env", {}).get("CL_HOME", "")
+        except Exception:
+            cl_home = ""
+    if cl_home:
+        candidate = Path(cl_home) / "bin" / "cl"
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which("cl") or ""
+
+
+def _cl_anchor_prelude() -> str:
+    """Bash prelude that anchors the session via `cl session start`.
+
+    The `cl` path is resolved and baked in at generation time. If `cl` can't be
+    found, the session launches unanchored and the prelude is an inert comment.
+    """
+    cl_bin = _resolve_cl_bin()
+    if not cl_bin:
+        return "# ContextLifecycle: cl not found at launch — session unanchored.\n"
+    safe = cl_bin.replace("'", "'\\''")
+    return (
+        "# ContextLifecycle: anchor at owning manifest (cl path baked at launch).\n"
+        f"_CL_BIN='{safe}'\n"
+        'eval "$("$_CL_BIN" session start 2>/dev/null || true)"\n'
+    )
 
 
 def get_claude_command(
@@ -163,22 +195,17 @@ def get_claude_command(
     sf = str(session_file).replace("'", "'\\''")
     pd = str(project_dir).replace("'", "'\\''")
 
-    # RC file: sourced by the post-claude shell and by the shell pane so that
-    # typing `claude` in either context re-anchors automatically.
+    # RC file: sourced by the post-claude interactive shell so that typing
+    # `claude` re-anchors automatically. The `cl` path is baked at launch.
+    cl_bin = _resolve_cl_bin()
+    safe_cl = cl_bin.replace("'", "'\\''")
     rc_path = Path(tempfile.gettempdir()) / f"console-rc-{key}.sh"
     rc_path.write_text(
         "[ -f ~/.bashrc ] && source ~/.bashrc\n"
         "claude() {\n"
-        "    local _cl=\"${CL_HOME:+$CL_HOME/bin/cl}\"\n"
-        "    if [ -z \"$_cl\" ] || [ ! -x \"$_cl\" ]; then\n"
-        "        local _h\n"
-        "        _h=$(python3 -c \"import json,pathlib; p=pathlib.Path.home()/'.claude/settings.json';"
-        " d=json.loads(p.read_text()) if p.exists() else {}; print(d.get('env',{}).get('CL_HOME',''))\" 2>/dev/null)\n"
-        "        [ -n \"$_h\" ] && _cl=\"$_h/bin/cl\"\n"
-        "    fi\n"
-        "    _cl=\"${_cl:-$(command -v cl 2>/dev/null)}\"\n"
-        "    [ -n \"$_cl\" ] && [ -x \"$_cl\" ] && eval \"$($_cl session start 2>/dev/null || true)\"\n"
-        "    command claude \"$@\"\n"
+        f"    local _cl='{safe_cl}'\n"
+        '    [ -n "$_cl" ] && [ -x "$_cl" ] && eval "$("$_cl" session start 2>/dev/null || true)"\n'
+        '    command claude "$@"\n'
         "}\n",
         encoding="utf-8",
     )
@@ -187,7 +214,7 @@ def get_claude_command(
 
     script = (
         "#!/usr/bin/env bash\n"
-        + _CL_ANCHOR_PRELUDE
+        + _cl_anchor_prelude()
         + f"SESSION_FILE='{sf}'\n"
         f"PROJECT_DIR='{pd}'\n"
         "_save_session() {\n"
@@ -244,7 +271,7 @@ def get_codex_command(
 
     not_found_block = (
         "#!/usr/bin/env bash\n"
-        + _CL_ANCHOR_PRELUDE
+        + _cl_anchor_prelude()
         + f"if ! command -v '{safe_bin}' &>/dev/null; then\n"
         "  echo 'codex CLI not found.'\n"
         "  echo 'Install: npm install -g @openai/codex'\n"
@@ -326,7 +353,7 @@ def get_aider_command(
 
     not_found_block = (
         "#!/usr/bin/env bash\n"
-        + _CL_ANCHOR_PRELUDE
+        + _cl_anchor_prelude()
         + f"if ! command -v '{safe_bin}' &>/dev/null; then\n"
         "  echo 'aider not found.'\n"
         "  echo 'Install: pip install aider-chat'\n"

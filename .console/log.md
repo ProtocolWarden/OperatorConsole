@@ -1,15 +1,24 @@
 # Log
 
-## 2026-05-27 — Fix CL_HOME resolution in non-interactive panes
+## 2026-05-27 — Redesign CL anchoring: resolve cl once, bake the path
 
-`source ~/.bashrc` is a no-op in zellij panes because most `.bashrc` files guard
-against non-interactive shells (`[[ $- != *i* ]] && return`). As a result,
-`CL_HOME` was never set in pane subshells, `cl session start` silently failed,
-and every console-launched CLI opened without `CL_ANCHOR`.
+Replaced the runtime resolution dance (repeated in 3 wrapper builders + the rc
+file) with a single Python resolver, `_resolve_cl_bin()`, and a
+`_cl_anchor_prelude()` that bakes the resolved absolute `cl` path into each
+generated wrapper.
 
-Fixed `_CL_ANCHOR_PRELUDE` in `bootstrap.py` to fall back to reading `CL_HOME`
-from `~/.claude/settings.json` (machine-provisioned, always reliable) before
-the PATH lookup. Same fix applied to the `claude()` wrapper in the rc file.
+Why: `cl` lives at `$CL_HOME/bin/cl`, and CL_HOME is *machine state* (the local
+clone path), so it can't live in a repo. Zellij panes are non-interactive,
+non-login shells that source neither `~/.bashrc` nor `~/.claude/settings.json`,
+so resolving `cl` *inside the pane* was unreliable (the earlier `source
+~/.bashrc` and inline-python-reading-settings.json hacks). The `console` process
+itself *does* inherit CL_HOME from the interactive shell that launched it — so
+we resolve there, once, and bake the literal path in. Resolution order:
+CL_HOME env → settings.json env.CL_HOME → `cl` on PATH. If none resolve, the
+prelude is an inert comment (session launches unanchored, never errors).
+
+Verified with `env -i` (clean env, no CL_HOME — mimics a pane): baked path
+anchors CL_ANCHOR correctly where `source ~/.bashrc` produced nothing.
 
 ## 2026-05-27 — Wire provision-machine.sh into setup.sh
 
