@@ -945,6 +945,9 @@ def _build_sections(
     # Global Gate and System Resources (see _bottom_sections).
 
     # ── backend caps (per-backend rate / concurrency / RAM) ──
+    # Rendered as two labeled sub-sections:
+    #   Executor Lanes  — team_executor / dag_executor / critique_executor
+    #   Worker Backends — claude_code / codex_cli / aider_local / direct_local
     caps = data.get("backend_caps", {})
     usage = data.get("backend_usage", {})
     res = data.get("resources", {})
@@ -953,12 +956,21 @@ def _build_sections(
         mem_avail_mb = int(
             (res["mem_total_gb"] - res.get("mem_used_gb", 0)) * 1024
         )
-    if caps or usage:
-        bc_lines: list[tuple[str, int]] = []
-        bc_section_worst = C["RUN"]
-        budget = data.get("budget", {})
-        global_cap = {"max_per_hour": budget.get("hourly_cap"), "max_per_day": budget.get("daily_cap")}
-        for backend in sorted(set(caps) | set(usage)):
+
+    _EXECUTOR_LANE_NAMES = {"team_executor", "dag_executor", "critique_executor"}
+    _WORKER_BACKEND_NAMES = {"claude_code", "codex_cli", "aider_local", "direct_local"}
+
+    def _render_backend_rows(
+        backend_keys: list[str],
+        caps: dict,
+        usage: dict,
+        global_cap: dict,
+        mem_avail_mb: int,
+    ) -> tuple[list[tuple[str, int]], int]:
+        """Return (rows, section_worst_attr) for a group of backend keys."""
+        rows: list[tuple[str, int]] = []
+        section_worst = C["RUN"]
+        for backend in backend_keys:
             bc = caps.get(backend, {})
             bu = usage.get(backend, {})
             cells: list[str] = []
@@ -995,11 +1007,60 @@ def _build_sections(
                     worst_attr = C["ERR"]
                 cells.append(f"≥{ram_floor}M")
             row = " ".join(cells) if cells else "(No Limits)"
-            bc_lines.append((f"  {_tc(backend):<14} {row}", worst_attr))
+            rows.append((f"  {_tc(backend):<14} {row}", worst_attr))
             if worst_attr is C["ERR"]:
+                section_worst = C["ERR"]
+            elif worst_attr is C["YLW"] and section_worst is C["RUN"]:
+                section_worst = C["YLW"]
+        return rows, section_worst
+
+    if caps or usage:
+        budget = data.get("budget", {})
+        global_cap = {"max_per_hour": budget.get("hourly_cap"), "max_per_day": budget.get("daily_cap")}
+
+        # Executor Lanes — backends in caps config that are lane names
+        executor_keys = sorted(
+            k for k in (set(caps) | set(usage)) if k in _EXECUTOR_LANE_NAMES
+        )
+        # Worker Backends — backends in usage events that are worker backend names
+        worker_keys = sorted(
+            k for k in (set(caps) | set(usage)) if k in _WORKER_BACKEND_NAMES
+        )
+        # Any unclassified backends — include them with executor lanes as a fallback
+        unclassified_keys = sorted(
+            k for k in (set(caps) | set(usage))
+            if k not in _EXECUTOR_LANE_NAMES and k not in _WORKER_BACKEND_NAMES
+        )
+        executor_keys = executor_keys + unclassified_keys
+
+        bc_lines: list[tuple[str, int]] = []
+        bc_section_worst = C["RUN"]
+
+        if executor_keys:
+            exec_rows, exec_worst = _render_backend_rows(
+                executor_keys, caps, usage, global_cap, mem_avail_mb
+            )
+            bc_lines.append((" Executor Lanes", C["HEAD"]))
+            bc_lines.extend(exec_rows)
+            if exec_worst is C["ERR"]:
                 bc_section_worst = C["ERR"]
-            elif worst_attr is C["YLW"] and bc_section_worst is C["RUN"]:
+            elif exec_worst is C["YLW"] and bc_section_worst is C["RUN"]:
                 bc_section_worst = C["YLW"]
+
+        if worker_keys:
+            if executor_keys:
+                bc_lines.append((" Worker Backends", C["HEAD"]))
+            else:
+                bc_lines.append((" Worker Backends", C["HEAD"]))
+            worker_rows, worker_worst = _render_backend_rows(
+                worker_keys, caps, usage, global_cap, mem_avail_mb
+            )
+            bc_lines.extend(worker_rows)
+            if worker_worst is C["ERR"]:
+                bc_section_worst = C["ERR"]
+            elif worker_worst is C["YLW"] and bc_section_worst is C["RUN"]:
+                bc_section_worst = C["YLW"]
+
         sections.append({"id": "backend_caps", "lines": [
             (" Backend Limits", bc_section_worst | curses.A_BOLD),
             *bc_lines,
