@@ -781,6 +781,10 @@ def _recent_activity() -> list[dict]:
                 continue
             if not any(k in raw for k in (" claimed ", " completed ", " blocked ", " processing ", " failed ")):
                 continue
+            # Skip infrastructure errors — these are connectivity/API failures,
+            # not task-level events, and would show as false "failed" task entries.
+            if "failed to list" in raw or "failed to fetch" in raw or "failed to connect" in raw:
+                continue
             m = _RECENT_PAT.match(raw)
             if not m:
                 continue
