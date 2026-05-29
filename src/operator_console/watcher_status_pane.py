@@ -1081,8 +1081,9 @@ def _build_sections(
 
     all_known = set(caps) | set(usage) | set(_ctrl_cooldowns) | set(_worker_reset)
     exec_keys   = sorted(k for k in all_known if k in _EXECUTOR_LANE_NAMES)
-    remote_keys = sorted(k for k in all_known if k in _REMOTE_WORKER_NAMES)
-    local_keys  = sorted(k for k in all_known if k in _LOCAL_WORKER_NAMES)
+    # Always show remote workers — they're always relevant, even when runnable/idle
+    remote_keys = sorted(_REMOTE_WORKER_NAMES)
+    local_keys  = sorted(k for k in (all_known | set(caps)) if k in _LOCAL_WORKER_NAMES)
 
     if exec_keys or remote_keys or local_keys:
         budget = data.get("budget", {})
