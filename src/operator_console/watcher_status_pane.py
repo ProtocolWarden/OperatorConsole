@@ -29,6 +29,7 @@ from pathlib import Path
 _OC_ROOT    = Path.home() / "Documents" / "GitHub" / "OperationsCenter"
 _WATCH_DIR  = _OC_ROOT / "logs" / "local" / "watch-all"
 _STATE_DIR  = _OC_ROOT / "state"
+_CONTROLLER_STATE_PATH = _OC_ROOT / "logs" / "local" / "loop_controller_state.json"
 _QUEUE_DIR  = Path.home() / ".console" / "queue"
 _PROFILES_DIR = Path(__file__).resolve().parent.parent.parent / "config" / "profiles"
 
@@ -944,10 +945,10 @@ def _build_sections(
     # Note: Global Rate moved to the bottom-anchored block alongside
     # Global Gate and System Resources (see _bottom_sections).
 
-    # ── backend caps (per-backend rate / concurrency / RAM) ──
-    # Rendered as two labeled sub-sections:
-    #   Executor Lanes  — team_executor / dag_executor / critique_executor
-    #   Worker Backends — claude_code / codex_cli / aider_local / direct_local
+    # ── backend caps ──
+    # Executor Lanes  (team/dag/critique): H/D/F + memory floor
+    # Remote Workers  (claude_code, codex_cli): cooldown / session reset
+    # Local Workers   (aider_local, direct_local): memory floor only
     caps = data.get("backend_caps", {})
     usage = data.get("backend_usage", {})
     res = data.get("resources", {})
@@ -957,36 +958,62 @@ def _build_sections(
             (res["mem_total_gb"] - res.get("mem_used_gb", 0)) * 1024
         )
 
-    _EXECUTOR_LANE_NAMES = {"team_executor", "dag_executor", "critique_executor"}
-    _WORKER_BACKEND_NAMES = {"claude_code", "codex_cli", "aider_local", "direct_local"}
+    _EXECUTOR_LANE_NAMES  = {"team_executor", "dag_executor", "critique_executor"}
+    _REMOTE_WORKER_NAMES  = {"claude_code", "codex_cli"}
+    _LOCAL_WORKER_NAMES   = {"aider_local", "direct_local"}
 
-    def _render_backend_rows(
-        backend_keys: list[str],
-        caps: dict,
-        usage: dict,
-        global_cap: dict,
-        mem_avail_mb: int,
-    ) -> tuple[list[tuple[str, int]], int]:
-        """Return (rows, section_worst_attr) for a group of backend keys."""
+    # Read controller state for remote worker cooldowns.
+    # Controller uses "claude"/"codex" keys; map to canonical names.
+    _ctrl_cooldowns: dict[str, str | None] = {}
+    _ctrl_runnable: str | None = None
+    try:
+        _cs = json.loads(_CONTROLLER_STATE_PATH.read_text(encoding="utf-8"))
+        _ctrl_runnable = _cs.get("runnable_backend")  # "claude" | "codex" | None
+        for _k, _v in (_cs.get("backend_cooldowns") or {}).items():
+            _canonical = "claude_code" if _k == "claude" else ("codex_cli" if _k == "codex" else _k)
+            _ctrl_cooldowns[_canonical] = _v  # ISO string or None
+    except Exception:
+        pass
+
+    # Latest future cooldown reset per remote worker from usage.json events.
+    _worker_reset: dict[str, str] = {}
+    try:
+        import time as _time
+        _now_ts = _time.time()
+        _usage_raw = json.loads(_USAGE_PATH.read_text(encoding="utf-8")) if _USAGE_PATH.exists() else {}
+        for _ev in (_usage_raw.get("events") or []):
+            if not isinstance(_ev, dict) or _ev.get("kind") != "worker_backend_cooldown":
+                continue
+            _wb = _ev.get("worker_backend", "")
+            _rat = _ev.get("reset_at", "")
+            if not _wb or not _rat:
+                continue
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                _reset_ts = _dt.fromisoformat(_rat).timestamp()
+                if _reset_ts > _now_ts:
+                    if _wb not in _worker_reset or _reset_ts > _dt.fromisoformat(_worker_reset[_wb]).timestamp():
+                        _worker_reset[_wb] = _rat
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    def _render_executor_rows(keys: list[str], global_cap: dict) -> tuple[list[tuple[str, int]], int]:
         rows: list[tuple[str, int]] = []
-        section_worst = C["RUN"]
-        for backend in backend_keys:
+        worst = C["RUN"]
+        for backend in keys:
             bc = caps.get(backend, {})
             bu = usage.get(backend, {})
             cells: list[str] = []
-            worst_attr = C["RUN"]
-            for abbrev, used_key, cap_key in (
-                ("H", "hourly", "max_per_hour"),
-                ("D", "daily",  "max_per_day"),
-            ):
+            wa = C["RUN"]
+            for abbrev, used_key, cap_key in (("H", "hourly", "max_per_hour"), ("D", "daily", "max_per_day")):
                 limit = bc.get(cap_key) or global_cap.get(cap_key)
                 used = bu.get(used_key, 0)
                 if limit is not None:
                     ratio = (used / limit) if limit else 0.0
-                    if ratio >= 1:
-                        worst_attr = C["ERR"]
-                    elif ratio >= 0.8 and worst_attr is C["RUN"]:
-                        worst_attr = C["YLW"]
+                    if ratio >= 1: wa = C["ERR"]
+                    elif ratio >= 0.8 and wa is C["RUN"]: wa = C["YLW"]
                     cells.append(f"{abbrev}:{used}/{limit}")
                 elif used:
                     cells.append(f"{abbrev}:{used}/∞")
@@ -994,75 +1021,95 @@ def _build_sections(
             mc = bc.get("max_concurrent")
             if mc is not None:
                 ratio = (in_flight / mc) if mc else 0.0
-                if ratio >= 1:
-                    worst_attr = C["ERR"]
-                elif ratio >= 0.8 and worst_attr is C["RUN"]:
-                    worst_attr = C["YLW"]
+                if ratio >= 1: wa = C["ERR"]
+                elif ratio >= 0.8 and wa is C["RUN"]: wa = C["YLW"]
                 cells.append(f"F:{in_flight}/{mc}")
             elif in_flight:
                 cells.append(f"F:{in_flight}/∞")
-            ram_floor = bc.get("min_available_memory_mb")
-            if ram_floor is not None:
-                if mem_avail_mb and mem_avail_mb < ram_floor:
-                    worst_attr = C["ERR"]
-                cells.append(f"≥{ram_floor}M")
-            row = " ".join(cells) if cells else "(No Limits)"
-            rows.append((f"  {_tc(backend):<14} {row}", worst_attr))
-            if worst_attr is C["ERR"]:
-                section_worst = C["ERR"]
-            elif worst_attr is C["YLW"] and section_worst is C["RUN"]:
-                section_worst = C["YLW"]
-        return rows, section_worst
+            ram = bc.get("min_available_memory_mb")
+            if ram is not None:
+                if mem_avail_mb and mem_avail_mb < ram: wa = C["ERR"]
+                cells.append(f"≥{ram}M")
+            row = " ".join(cells) if cells else "—"
+            rows.append((f"  {_tc(backend):<14} {row}", wa))
+            if wa is C["ERR"]: worst = C["ERR"]
+            elif wa is C["YLW"] and worst is C["RUN"]: worst = C["YLW"]
+        return rows, worst
 
-    if caps or usage:
+    def _render_remote_worker_rows(keys: list[str]) -> tuple[list[tuple[str, int]], int]:
+        rows: list[tuple[str, int]] = []
+        worst = C["RUN"]
+        for backend in keys:
+            cooldown_iso = _ctrl_cooldowns.get(backend) or _worker_reset.get(backend)
+            if cooldown_iso:
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    reset_dt = _dt.fromisoformat(cooldown_iso)
+                    remaining = int((reset_dt - _dt.now(_tz.utc)).total_seconds())
+                    if remaining > 0:
+                        hrs, mins = divmod(remaining // 60, 60)
+                        label = f"cooldown {hrs}h{mins:02d}m" if hrs else f"cooldown {mins}m"
+                        wa = C["ERR"]
+                    else:
+                        label = "runnable"
+                        wa = C["RUN"]
+                except Exception:
+                    label = "cooldown"
+                    wa = C["ERR"]
+            else:
+                label = "runnable"
+                wa = C["RUN"]
+            rows.append((f"  {_tc(backend):<14} {label}", wa))
+            if wa is C["ERR"]: worst = C["ERR"]
+        return rows, worst
+
+    def _render_local_worker_rows(keys: list[str]) -> tuple[list[tuple[str, int]], int]:
+        rows: list[tuple[str, int]] = []
+        worst = C["RUN"]
+        for backend in keys:
+            bc = caps.get(backend, {})
+            ram = bc.get("min_available_memory_mb")
+            if ram is not None:
+                wa = C["ERR"] if mem_avail_mb and mem_avail_mb < ram else C["RUN"]
+                cell = f"≥{ram}M"
+            else:
+                wa = C["RUN"]
+                cell = "—"
+            rows.append((f"  {_tc(backend):<14} {cell}", wa))
+            if wa is C["ERR"]: worst = C["ERR"]
+        return rows, worst
+
+    all_known = set(caps) | set(usage) | set(_ctrl_cooldowns) | set(_worker_reset)
+    exec_keys   = sorted(k for k in all_known if k in _EXECUTOR_LANE_NAMES)
+    remote_keys = sorted(k for k in all_known if k in _REMOTE_WORKER_NAMES)
+    local_keys  = sorted(k for k in all_known if k in _LOCAL_WORKER_NAMES)
+
+    if exec_keys or remote_keys or local_keys:
         budget = data.get("budget", {})
         global_cap = {"max_per_hour": budget.get("hourly_cap"), "max_per_day": budget.get("daily_cap")}
-
-        # Executor Lanes — backends in caps config that are lane names
-        executor_keys = sorted(
-            k for k in (set(caps) | set(usage)) if k in _EXECUTOR_LANE_NAMES
-        )
-        # Worker Backends — backends in usage events that are worker backend names
-        worker_keys = sorted(
-            k for k in (set(caps) | set(usage)) if k in _WORKER_BACKEND_NAMES
-        )
-        # Any unclassified backends — include them with executor lanes as a fallback
-        unclassified_keys = sorted(
-            k for k in (set(caps) | set(usage))
-            if k not in _EXECUTOR_LANE_NAMES and k not in _WORKER_BACKEND_NAMES
-        )
-        executor_keys = executor_keys + unclassified_keys
-
         bc_lines: list[tuple[str, int]] = []
-        bc_section_worst = C["RUN"]
+        bc_worst = C["RUN"]
 
-        if executor_keys:
-            exec_rows, exec_worst = _render_backend_rows(
-                executor_keys, caps, usage, global_cap, mem_avail_mb
-            )
+        if exec_keys:
+            rows, w = _render_executor_rows(exec_keys, global_cap)
             bc_lines.append((" Executor Lanes", C["HEAD"]))
-            bc_lines.extend(exec_rows)
-            if exec_worst is C["ERR"]:
-                bc_section_worst = C["ERR"]
-            elif exec_worst is C["YLW"] and bc_section_worst is C["RUN"]:
-                bc_section_worst = C["YLW"]
+            bc_lines.extend(rows)
+            if w is C["ERR"]: bc_worst = C["ERR"]
+            elif w is C["YLW"] and bc_worst is C["RUN"]: bc_worst = C["YLW"]
 
-        if worker_keys:
-            if executor_keys:
-                bc_lines.append((" Worker Backends", C["HEAD"]))
-            else:
-                bc_lines.append((" Worker Backends", C["HEAD"]))
-            worker_rows, worker_worst = _render_backend_rows(
-                worker_keys, caps, usage, global_cap, mem_avail_mb
-            )
-            bc_lines.extend(worker_rows)
-            if worker_worst is C["ERR"]:
-                bc_section_worst = C["ERR"]
-            elif worker_worst is C["YLW"] and bc_section_worst is C["RUN"]:
-                bc_section_worst = C["YLW"]
+        if remote_keys or local_keys:
+            bc_lines.append((" Worker Backends", C["HEAD"]))
+            if remote_keys:
+                rows, w = _render_remote_worker_rows(remote_keys)
+                bc_lines.extend(rows)
+                if w is C["ERR"]: bc_worst = C["ERR"]
+            if local_keys:
+                rows, w = _render_local_worker_rows(local_keys)
+                bc_lines.extend(rows)
+                if w is C["ERR"]: bc_worst = C["ERR"]
 
         sections.append({"id": "backend_caps", "lines": [
-            (" Backend Limits", bc_section_worst | curses.A_BOLD),
+            (" Backend Limits", bc_worst | curses.A_BOLD),
             *bc_lines,
         ], "sel_local": -1})
 
