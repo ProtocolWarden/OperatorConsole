@@ -1091,13 +1091,8 @@ def _build_sections(
         bc_lines: list[tuple[str, int]] = []
         bc_worst = C["RUN"]
 
-        if exec_keys:
-            rows, w = _render_executor_rows(exec_keys, global_cap)
-            bc_lines.append((" Executor Lanes", C["HEAD"]))
-            bc_lines.extend(rows)
-            if w is C["ERR"]: bc_worst = C["ERR"]
-            elif w is C["YLW"] and bc_worst is C["RUN"]: bc_worst = C["YLW"]
-
+        # Worker Backends first — most operator-relevant signal (cooldown state),
+        # must survive section height squeeze before executor lane stats.
         if remote_keys or local_keys:
             bc_lines.append((" Worker Backends", C["HEAD"]))
             if remote_keys:
@@ -1108,6 +1103,13 @@ def _build_sections(
                 rows, w = _render_local_worker_rows(local_keys)
                 bc_lines.extend(rows)
                 if w is C["ERR"]: bc_worst = C["ERR"]
+
+        if exec_keys:
+            rows, w = _render_executor_rows(exec_keys, global_cap)
+            bc_lines.append((" Executor Lanes", C["HEAD"]))
+            bc_lines.extend(rows)
+            if w is C["ERR"]: bc_worst = C["ERR"]
+            elif w is C["YLW"] and bc_worst is C["RUN"]: bc_worst = C["YLW"]
 
         sections.append({"id": "backend_caps", "lines": [
             (" Backend Limits", bc_worst | curses.A_BOLD),
