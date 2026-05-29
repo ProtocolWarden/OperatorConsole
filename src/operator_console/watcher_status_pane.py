@@ -677,6 +677,11 @@ def _collect(repo_filter: set[str] | None) -> dict:
     if now - _plane_cache["fetched_at"] >= PLANE_REFRESH_INTERVAL:
         fresh = _plane_issues(repo_filter)
         _plane_cache = {**fresh, "fetched_at": now}
+    _ctrl_state: dict = {}
+    try:
+        _ctrl_state = json.loads(_CONTROLLER_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
     return {
         "roles":     {r: _role_info(r) for r in _ROLES},
         "restarts":  _restart_counts(),
@@ -690,6 +695,7 @@ def _collect(repo_filter: set[str] | None) -> dict:
         "backend_caps":  _backend_caps(),
         "backend_usage": _backend_usage(),
         "resource_gate": _resource_gate(),
+        "ctrl_state": _ctrl_state,
         "at":        now,
     }
 
@@ -857,9 +863,11 @@ def _build_sections(
             role_lines.append((line, attr))
     sections.append({"id": "roles", "lines": role_lines, "sel_local": role_sel_local})
 
-    # ── active tasks (Plane: Running) ──
+    # ── active tasks (Plane: Running) + controller idle state ──
     plane = data.get("plane", {})
     active_tasks = plane.get("active", [])
+    ctrl_state   = data.get("ctrl_state", {})
+    sleeping_until = ctrl_state.get("sleeping_until_utc")
     if active_tasks:
         active_lines: list[tuple[str, int]] = [
             (f" Active ({len(active_tasks)} Running)", C["HEAD"] | curses.A_BOLD),
@@ -869,6 +877,24 @@ def _build_sections(
             title = item.get("title", "?")[:max(w - 20, 8)]
             active_lines.append((f"  ›  {repo:<14} {title}", C["RUN"]))
         sections.append({"id": "active", "lines": active_lines, "sel_local": -1})
+    elif sleeping_until:
+        # Controller is between iterations — show wake time so the empty
+        # Active section isn't mistaken for a broken pane.
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            _wake = _dt.fromisoformat(sleeping_until.replace("Z", "+00:00"))
+            _now  = _dt.now(_tz.utc)
+            _secs = max(0, int((_wake - _now).total_seconds()))
+            _mins, _s = divmod(_secs, 60)
+            _eta = f"{_mins}m{_s:02d}s" if _mins else f"{_s}s"
+            _wake_hm = _wake.strftime("%H:%Mz")
+            idle_line = f"  ·  Controller sleeping — next tick {_wake_hm} (in {_eta})"
+        except Exception:
+            idle_line = f"  ·  Controller sleeping until {sleeping_until}"
+        sections.append({"id": "active", "lines": [
+            (" Active (Idle)", C["DIM"] | curses.A_BOLD),
+            (idle_line, C["DIM"]),
+        ], "sel_local": -1})
 
     # ── recent activity (worker logs) ──
     recent = data.get("recent", [])
