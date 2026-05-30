@@ -863,11 +863,9 @@ def _build_sections(
             role_lines.append((line, attr))
     sections.append({"id": "roles", "lines": role_lines, "sel_local": role_sel_local})
 
-    # ── active tasks (Plane: Running) + controller idle state ──
+    # ── active tasks (Plane: Running) ──
     plane = data.get("plane", {})
     active_tasks = plane.get("active", [])
-    ctrl_state   = data.get("ctrl_state", {})
-    sleeping_until = ctrl_state.get("sleeping_until_utc")
     if active_tasks:
         active_lines: list[tuple[str, int]] = [
             (f" Active ({len(active_tasks)} Running)", C["HEAD"] | curses.A_BOLD),
@@ -877,24 +875,6 @@ def _build_sections(
             title = item.get("title", "?")[:max(w - 20, 8)]
             active_lines.append((f"  ›  {repo:<14} {title}", C["RUN"]))
         sections.append({"id": "active", "lines": active_lines, "sel_local": -1})
-    elif sleeping_until:
-        # Controller is between iterations — show wake time so the empty
-        # Active section isn't mistaken for a broken pane.
-        try:
-            from datetime import datetime as _dt, timezone as _tz
-            _wake = _dt.fromisoformat(sleeping_until.replace("Z", "+00:00"))
-            _now  = _dt.now(_tz.utc)
-            _secs = max(0, int((_wake - _now).total_seconds()))
-            _mins, _s = divmod(_secs, 60)
-            _eta = f"{_mins}m{_s:02d}s" if _mins else f"{_s}s"
-            _wake_hm = _wake.strftime("%H:%Mz")
-            idle_line = f"  ·  Controller sleeping — next tick {_wake_hm} (in {_eta})"
-        except Exception:
-            idle_line = f"  ·  Controller sleeping until {sleeping_until}"
-        sections.append({"id": "active", "lines": [
-            (" Active (Idle)", C["DIM"] | curses.A_BOLD),
-            (idle_line, C["DIM"]),
-        ], "sel_local": -1})
 
     # ── recent activity (worker logs) ──
     recent = data.get("recent", [])
@@ -1141,8 +1121,24 @@ def _build_sections(
             if w is C["ERR"]: bc_worst = C["ERR"]
             elif w is C["YLW"] and bc_worst is C["RUN"]: bc_worst = C["YLW"]
 
+        # Controller sleep status — show next-tick countdown in Backend Limits header.
+        ctrl_state    = data.get("ctrl_state", {})
+        sleeping_until = ctrl_state.get("sleeping_until_utc")
+        ctrl_lines: list[tuple[str, int]] = []
+        if sleeping_until:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                _wake = _dt.fromisoformat(sleeping_until.replace("Z", "+00:00"))
+                _secs = max(0, int((_wake - _dt.now(_tz.utc)).total_seconds()))
+                _mins, _s = divmod(_secs, 60)
+                _eta = f"{_mins}m{_s:02d}s" if _mins else f"{_s}s"
+                ctrl_lines.append((f"  · Controller idle — next tick in {_eta}", C["DIM"]))
+            except Exception:
+                pass
+
         sections.append({"id": "backend_caps", "lines": [
             (" Backend Limits", bc_worst | curses.A_BOLD),
+            *ctrl_lines,
             *bc_lines,
         ], "sel_local": -1})
 
