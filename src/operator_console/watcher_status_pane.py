@@ -1664,14 +1664,6 @@ def _draw_main(
     middle_bottom = h - bottom_h - footer_h
     middle_h   = max(0, middle_bottom - middle_top)
 
-    # 1 row per separator between sections (header gets a separator row above it
-    # except for the first). Reserve those before allocating to sections.
-    n_seps    = max(0, len(sections) - 1)
-    avail     = max(0, middle_h - n_seps)
-    rows_per  = _allocate_section_rows(
-        sections, avail, collapsed=collapsed, size_mult=size_mult,
-    )
-
     # ── Virtual buffer for top-block scrolling ──
     # Concatenate every visible top-section line (with a divider between
     # sections) into a flat virtual buffer. The middle area shows a
@@ -1686,21 +1678,14 @@ def _draw_main(
             vbuf.append((_SEP_MARKER, C["DIM"]))
             vbuf_meta.append(("", -1))
         start_idx = len(vbuf)
-        sec_h = rows_per[i]
-        n_lines = len(sec["lines"])
-        # When a section is squeezed below its natural height, lines beyond
-        # sec_h are dropped from the buffer entirely (not scrolled off). Make
-        # that visible: the last allocated row shows how many are hidden so the
-        # truncation isn't silent. Only when ≥2 rows so a data row still shows.
-        truncated = 1 < sec_h < n_lines
-        for j in range(sec_h):
-            if truncated and j == sec_h - 1:
-                hidden = n_lines - (sec_h - 1)
-                vbuf.append((f"  … +{hidden} more", C["DIM"]))
-            elif j < n_lines:
-                vbuf.append(sec["lines"][j])
-            else:
-                vbuf.append(("", 0))
+        # Emit the FULL section into the scroll buffer — only the header line
+        # when collapsed. Previously each section was truncated to its allocated
+        # rows_per height with a "… +N more" tail, but the hidden rows were never
+        # placed in the buffer, so scrolling could not reveal them (it defeated
+        # the scroll). Putting everything in lets the scroll window page over it.
+        emit = 1 if collapsed.get(sec["id"], False) else len(sec["lines"])
+        for j in range(emit):
+            vbuf.append(sec["lines"][j])
             vbuf_meta.append((sec["id"], j))
         section_buf_ranges[sec["id"]] = (start_idx, len(vbuf))
 
