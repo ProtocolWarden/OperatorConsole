@@ -972,25 +972,66 @@ def _build_sections(
     _REMOTE_WORKER_NAMES  = {"claude_code", "codex_cli"}
     _LOCAL_WORKER_NAMES   = {"aider_local", "direct_local"}
 
-    # Read controller state for remote worker cooldowns.
-    # Controller uses "claude"/"codex" keys; map to canonical names.
-    _ctrl_cooldowns: dict[str, str | None] = {}
+    # A remote worker backend runs several models, each with an independent
+    # weekly quota; account-wide limits (5-hour session / org weekly) take down
+    # every model at once. Showing per-model state is the difference between
+    # "claude_code is down" (wrong — only Sonnet's weekly is burnt) and the
+    # truth that Opus/Haiku are still runnable.
+    _REMOTE_BACKEND_MODELS = {
+        "claude_code": ("sonnet", "opus", "haiku"),
+        "codex_cli":   ("codex",),
+    }
+    # Controller backend keys → (worker_backend, model).
+    _CTRL_KEY_TO_MODEL = {
+        "claude": ("claude_code", "sonnet"),
+        "opus":   ("claude_code", "opus"),
+        "codex":  ("codex_cli", "codex"),
+    }
+    _ACCOUNT_WIDE_KINDS = {"session_5h", "global_weekly"}
+    _LIMIT_KIND_LABEL = {
+        "model_weekly":  "weekly",
+        "session_5h":    "session",
+        "global_weekly": "acct-weekly",
+        "generic":       "limit",
+    }
+
+    # Per-(worker_backend, model) cooldown: model -> {backend: (reset_iso, kind)}.
+    # Sourced from controller state (authoritative for sonnet/opus/codex) and
+    # enriched from usage.json events (carries model + limit_kind, and is the
+    # only source that can report a haiku cooldown).
+    _model_cd: dict[tuple[str, str], tuple[str, str | None]] = {}
     _ctrl_runnable: str | None = None
+
+    def _note_model_cd(_wb: str, _model: str | None, _iso: str, _kind: str | None) -> None:
+        if not _wb or not _iso:
+            return
+        models = (
+            _REMOTE_BACKEND_MODELS.get(_wb, ())
+            if (_kind in _ACCOUNT_WIDE_KINDS or not _model)
+            else (_model,)
+        )
+        for _m in models:
+            _key = (_wb, _m)
+            _prev = _model_cd.get(_key)
+            if _prev is None or _iso > _prev[0]:
+                _model_cd[_key] = (_iso, _kind)
+
+    # Read controller state for remote worker cooldowns (per model).
     try:
         _cs = json.loads(_CONTROLLER_STATE_PATH.read_text(encoding="utf-8"))
-        _ctrl_runnable = _cs.get("runnable_backend")  # "claude" | "codex" | None
+        _ctrl_runnable = _cs.get("runnable_backend")  # "claude" | "opus" | "codex" | None
+        _kinds = _cs.get("backend_limit_kinds") or {}
         for _k, _v in (_cs.get("backend_cooldowns") or {}).items():
-            _canonical = "claude_code" if _k == "claude" else ("codex_cli" if _k == "codex" else _k)
-            _ctrl_cooldowns[_canonical] = _v  # ISO string or None
+            _wb, _model = _CTRL_KEY_TO_MODEL.get(_k, (None, None))
+            if _wb and _v:
+                _note_model_cd(_wb, _model, _v, (_kinds.get(_k) or {}).get("limit_kind"))
     except Exception:
         pass
 
-    # Latest future cooldown reset per remote worker from usage.json events.
-    _worker_reset: dict[str, str] = {}
+    # Enrich from usage.json events (model + limit_kind aware).
     try:
-        import time as _time
-        _now_ts = _time.time()
         _usage_raw = json.loads(_USAGE_PATH.read_text(encoding="utf-8")) if _USAGE_PATH.exists() else {}
+        from datetime import datetime as _dt
         for _ev in (_usage_raw.get("events") or []):
             if not isinstance(_ev, dict) or _ev.get("kind") != "worker_backend_cooldown":
                 continue
@@ -999,13 +1040,11 @@ def _build_sections(
             if not _wb or not _rat:
                 continue
             try:
-                from datetime import datetime as _dt, timezone as _tz
-                _reset_ts = _dt.fromisoformat(_rat).timestamp()
-                if _reset_ts > _now_ts:
-                    if _wb not in _worker_reset or _reset_ts > _dt.fromisoformat(_worker_reset[_wb]).timestamp():
-                        _worker_reset[_wb] = _rat
+                if _dt.fromisoformat(_rat) <= _dt.now(_dt.fromisoformat(_rat).tzinfo):
+                    continue
             except Exception:
-                pass
+                continue
+            _note_model_cd(_wb, _ev.get("model"), _rat, _ev.get("limit_kind"))
     except Exception:
         pass
 
@@ -1046,31 +1085,55 @@ def _build_sections(
             elif wa is C["YLW"] and worst is C["RUN"]: worst = C["YLW"]
         return rows, worst
 
+    def _model_cooldown_label(backend: str, model: str) -> tuple[str, int]:
+        """Return (label, attr) for one model under a remote worker backend."""
+        cd = _model_cd.get((backend, model))
+        if not cd:
+            return "runnable", C["RUN"]
+        iso, kind = cd
+        try:
+            from datetime import datetime as _dt
+            reset_dt = _dt.fromisoformat(iso)
+            remaining = int((reset_dt - _dt.now(reset_dt.tzinfo)).total_seconds())
+        except Exception:
+            return "cooldown", C["ERR"]
+        if remaining <= 0:
+            return "runnable", C["RUN"]
+        hrs, mins = divmod(remaining // 60, 60)
+        days, hrs = divmod(hrs, 24)
+        if days:
+            eta = f"{days}d{hrs:02d}h"
+        elif hrs:
+            eta = f"{hrs}h{mins:02d}m"
+        else:
+            eta = f"{mins}m"
+        prefix = _LIMIT_KIND_LABEL.get(kind, "cooldown")
+        return f"{prefix} {eta}", C["ERR"]
+
     def _render_remote_worker_rows(keys: list[str]) -> tuple[list[tuple[str, int]], int]:
         rows: list[tuple[str, int]] = []
         worst = C["RUN"]
         for backend in keys:
-            cooldown_iso = _ctrl_cooldowns.get(backend) or _worker_reset.get(backend)
-            if cooldown_iso:
-                try:
-                    from datetime import datetime as _dt, timezone as _tz
-                    reset_dt = _dt.fromisoformat(cooldown_iso)
-                    remaining = int((reset_dt - _dt.now(_tz.utc)).total_seconds())
-                    if remaining > 0:
-                        hrs, mins = divmod(remaining // 60, 60)
-                        label = f"cooldown {hrs}h{mins:02d}m" if hrs else f"cooldown {mins}m"
-                        wa = C["ERR"]
-                    else:
-                        label = "runnable"
-                        wa = C["RUN"]
-                except Exception:
-                    label = "cooldown"
-                    wa = C["ERR"]
-            else:
-                label = "runnable"
-                wa = C["RUN"]
-            rows.append((f"  {_tc(backend):<14} {label}", wa))
-            if wa is C["ERR"]: worst = C["ERR"]
+            models = _REMOTE_BACKEND_MODELS.get(backend, ())
+            if len(models) <= 1:
+                # Single-model backend (e.g. codex_cli): collapse to one row.
+                model = models[0] if models else backend
+                label, wa = _model_cooldown_label(backend, model)
+                rows.append((f"  {_tc(backend):<14} {label}", wa))
+                if wa is C["ERR"]: worst = C["ERR"]
+                continue
+            # Multi-model backend: a header row + one indented row per model so a
+            # burnt model-weekly quota never reads as the whole backend being down.
+            model_rows: list[tuple[str, int]] = []
+            any_cd = False
+            for model in models:
+                label, wa = _model_cooldown_label(backend, model)
+                if wa is C["ERR"]:
+                    any_cd = True
+                    worst = C["ERR"]
+                model_rows.append((f"     {model:<7} {label}", wa))
+            rows.append((f"  {_tc(backend)}", C["ERR"] if any_cd else C["RUN"]))
+            rows.extend(model_rows)
         return rows, worst
 
     def _render_local_worker_rows(keys: list[str]) -> tuple[list[tuple[str, int]], int]:
@@ -1089,42 +1152,23 @@ def _build_sections(
             if wa is C["ERR"]: worst = C["ERR"]
         return rows, worst
 
-    all_known = set(caps) | set(usage) | set(_ctrl_cooldowns) | set(_worker_reset)
+    all_known = set(caps) | set(usage)
     exec_keys   = sorted(k for k in all_known if k in _EXECUTOR_LANE_NAMES)
     # Always show remote workers — they're always relevant, even when runnable/idle
     remote_keys = sorted(_REMOTE_WORKER_NAMES)
     local_keys  = sorted(k for k in (all_known | set(caps)) if k in _LOCAL_WORKER_NAMES)
 
-    if exec_keys or remote_keys or local_keys:
-        budget = data.get("budget", {})
-        global_cap = {"max_per_hour": budget.get("hourly_cap"), "max_per_day": budget.get("daily_cap")}
-        bc_lines: list[tuple[str, int]] = []
-        bc_worst = C["RUN"]
-
-        # Worker Backends first — most operator-relevant signal (cooldown state),
-        # must survive section height squeeze before executor lane stats.
-        if remote_keys or local_keys:
-            bc_lines.append((" Worker Backends", C["HEAD"]))
-            if remote_keys:
-                rows, w = _render_remote_worker_rows(remote_keys)
-                bc_lines.extend(rows)
-                if w is C["ERR"]: bc_worst = C["ERR"]
-            if local_keys:
-                rows, w = _render_local_worker_rows(local_keys)
-                bc_lines.extend(rows)
-                if w is C["ERR"]: bc_worst = C["ERR"]
-
-        if exec_keys:
-            rows, w = _render_executor_rows(exec_keys, global_cap)
-            bc_lines.append((" Executor Lanes", C["HEAD"]))
-            bc_lines.extend(rows)
-            if w is C["ERR"]: bc_worst = C["ERR"]
-            elif w is C["YLW"] and bc_worst is C["RUN"]: bc_worst = C["YLW"]
-
-        # Controller sleep status — show next-tick countdown in Backend Limits header.
+    # Worker Backends and Executor Lanes are now SEPARATE sections. They used to
+    # be one "Backend Limits" block with nested sub-headers; on height squeeze
+    # the block collapsed to just its labels, hiding the operator-critical
+    # cooldown rows. Two flat sections each keep a single header + data rows, so
+    # the cooldown signal survives independently of executor-lane stats.
+    if remote_keys or local_keys:
+        # Controller sleep status — next-tick countdown shown in the header area.
         ctrl_state    = data.get("ctrl_state", {})
         sleeping_until = ctrl_state.get("sleeping_until_utc")
-        ctrl_lines: list[tuple[str, int]] = []
+        wb_lines: list[tuple[str, int]] = []
+        wb_worst = C["RUN"]
         if sleeping_until:
             try:
                 from datetime import datetime as _dt, timezone as _tz
@@ -1132,14 +1176,30 @@ def _build_sections(
                 _secs = max(0, int((_wake - _dt.now(_tz.utc)).total_seconds()))
                 _mins, _s = divmod(_secs, 60)
                 _eta = f"{_mins}m{_s:02d}s" if _mins else f"{_s}s"
-                ctrl_lines.append((f"  · Controller idle — next tick in {_eta}", C["DIM"]))
+                wb_lines.append((f"  · Controller idle — next tick in {_eta}", C["DIM"]))
             except Exception:
                 pass
+        if remote_keys:
+            rows, w = _render_remote_worker_rows(remote_keys)
+            wb_lines.extend(rows)
+            if w is C["ERR"]: wb_worst = C["ERR"]
+        if local_keys:
+            rows, w = _render_local_worker_rows(local_keys)
+            wb_lines.extend(rows)
+            if w is C["ERR"]: wb_worst = C["ERR"]
+        sections.append({"id": "worker_backends", "lines": [
+            (" Worker Backends", wb_worst | curses.A_BOLD),
+            *wb_lines,
+        ], "sel_local": -1})
 
-        sections.append({"id": "backend_caps", "lines": [
-            (" Backend Limits", bc_worst | curses.A_BOLD),
-            *ctrl_lines,
-            *bc_lines,
+    if exec_keys:
+        budget = data.get("budget", {})
+        global_cap = {"max_per_hour": budget.get("hourly_cap"), "max_per_day": budget.get("daily_cap")}
+        rows, w = _render_executor_rows(exec_keys, global_cap)
+        el_worst = C["ERR"] if w is C["ERR"] else (C["YLW"] if w is C["YLW"] else C["RUN"])
+        sections.append({"id": "executor_lanes", "lines": [
+            (" Executor Lanes", el_worst | curses.A_BOLD),
+            *rows,
         ], "sel_local": -1})
 
     # ── services ──
@@ -1627,8 +1687,17 @@ def _draw_main(
             vbuf_meta.append(("", -1))
         start_idx = len(vbuf)
         sec_h = rows_per[i]
+        n_lines = len(sec["lines"])
+        # When a section is squeezed below its natural height, lines beyond
+        # sec_h are dropped from the buffer entirely (not scrolled off). Make
+        # that visible: the last allocated row shows how many are hidden so the
+        # truncation isn't silent. Only when ≥2 rows so a data row still shows.
+        truncated = 1 < sec_h < n_lines
         for j in range(sec_h):
-            if j < len(sec["lines"]):
+            if truncated and j == sec_h - 1:
+                hidden = n_lines - (sec_h - 1)
+                vbuf.append((f"  … +{hidden} more", C["DIM"]))
+            elif j < n_lines:
                 vbuf.append(sec["lines"][j])
             else:
                 vbuf.append(("", 0))
@@ -1951,7 +2020,7 @@ def _pane(stdscr, profile_name: str) -> None:
     collapsed_sections: dict[str, bool] = {
         sid: True for sid in (
             "roles", "active", "recent", "campaigns", "board",
-            "queue", "backend_caps", "services",
+            "queue", "worker_backends", "executor_lanes", "services",
             "global_gate", "global_rate",
         )
     }

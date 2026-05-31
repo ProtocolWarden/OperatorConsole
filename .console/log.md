@@ -1,5 +1,9 @@
 # Log
 
+## 2026-05-30 — status pane: per-model worker backend rows + split Backend Limits
+
+"Backend Limits → Worker Backends" showed only the subsection header on height squeeze: the single backend_caps section nested two sub-headers under its own title, and the virtual buffer keeps only a section's first sec_h lines on overflow, so the data rows fell off. Split into two flat sections (worker_backends, executor_lanes) so each keeps header + data independently. Also rendered claude_code per model (sonnet/opus/haiku) reading the controller's new backend_limit_kinds: a model_weekly limit marks only that model, session_5h/global_weekly mark all. Added a "… +N more" indicator when a section is truncated. 27 pane tests pass; custodian OK.
+
 ## 2026-05-28 — Wire ContextGuard hooks into OperatorConsole
 
 OC previously carried no `.claude/` hooks, so developing OC itself ran without
