@@ -4,6 +4,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -16,6 +17,75 @@ CONTEXT_SECTIONS = [
     ("backlog.md",    "Backlog"),
     ("log.md",   "Log"),
 ]
+
+# Hot-trim (tiered-memory spec §5): the log grows without bound, so compiling it
+# whole bloats the always-loaded startup blob (seen at 3k–6k lines in active
+# repos). Compile only the most-recent entries here; the full history stays in
+# the source `.console/log.md` (read on demand). Entries are appended newest-last
+# across the fleet, so the tail is the recent set. Tunable via env.
+LOG_RECENT_ENTRIES = int(os.environ.get("CONSOLE_LOG_RECENT_ENTRIES", "5") or "5")
+
+
+def _trim_log(content: str, max_entries: int = LOG_RECENT_ENTRIES) -> str:
+    """Keep the log preamble + the most-recent ``max_entries`` ``## `` entries,
+    replacing older ones with a one-line pointer to the full source file.
+
+    Newest-last convention (the fleet appends to the bottom), so the tail is the
+    recent set. A non-positive ``max_entries`` keeps everything (disables trim).
+    Returns ``content`` unchanged when it has no recognizable entries.
+    """
+    if max_entries <= 0:
+        return content
+    parts = re.split(r"(?m)^(?=## )", content)
+    if len(parts) <= 1:
+        return content
+    preamble, entries = parts[0], parts[1:]
+    if len(entries) <= max_entries:
+        return content
+    omitted = len(entries) - max_entries
+    note = (
+        f"_{omitted} older entr{'y' if omitted == 1 else 'ies'} omitted to keep "
+        f"startup context lean — full history in `.console/log.md`._\n\n"
+    )
+    return preamble.rstrip() + "\n\n" + note + "".join(entries[-max_entries:]).strip() + "\n"
+
+
+# Backlog sections that are historical/completed by name — dropped from the
+# compiled blob (kept in source). Conservative: only unambiguously-historical
+# headings. Active work (In Progress, Up Next, and any unrecognized section) is
+# always kept. Matched case-insensitively against the `## ` heading text.
+_HISTORICAL_BACKLOG_HEADING = re.compile(
+    r"^##\s+(done\b|recently completed|previously in progress|archived?\b|"
+    r"cycle\b.*\bupdates?\b)",
+    re.IGNORECASE,
+)
+
+
+def _trim_backlog(content: str) -> str:
+    """Drop unambiguously-historical/completed sections from the compiled backlog
+    (spec §5: completed inventory and per-cycle history are not needed in every
+    session's startup context). Active sections (In Progress, Up Next, and any
+    unrecognized heading) are kept whole; the source ``.console/backlog.md``
+    retains everything. Returns ``content`` unchanged when nothing matches.
+    """
+    parts = re.split(r"(?m)^(?=## )", content)
+    if len(parts) <= 1:
+        return content
+    kept: list[str] = []
+    dropped = 0
+    for part in parts:
+        heading = part.splitlines()[0] if part.strip().startswith("## ") else ""
+        if heading and _HISTORICAL_BACKLOG_HEADING.match(heading.strip()):
+            dropped += 1
+            continue
+        kept.append(part)
+    if not dropped:
+        return content
+    note = (
+        f"\n_{dropped} historical/completed backlog section(s) omitted to keep "
+        f"startup context lean — see `.console/backlog.md`._\n"
+    )
+    return "".join(kept).rstrip() + "\n" + note
 
 # Files pulled from peer repos (guidelines are repo-specific, skip them)
 PEER_FILES = [
@@ -54,6 +124,10 @@ def build_resume_prompt(
         path = console_dir / filename
         if path.exists():
             content = path.read_text(encoding="utf-8").strip()
+            if filename == "log.md":
+                content = _trim_log(content).strip()
+            elif filename == "backlog.md":
+                content = _trim_backlog(content).strip()
             if content:
                 sections.append(f"## {label}\n\n{content}")
 
