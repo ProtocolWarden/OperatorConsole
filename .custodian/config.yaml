@@ -90,10 +90,13 @@ audit:
       # commands.py: all interactive TUI commands + run management.
       # watcher_status_pane.py: full status pane with multiple sub-panels.
       # git_watcher.py: combined polling + display logic for git watch mode.
+      # bootstrap.py: the context-compiler core (section assembly + hot-trim) —
+      #   a cohesive module; splitting would fragment the compile path.
       - src/operator_console/cli.py
       - src/operator_console/commands.py
       - src/operator_console/watcher_status_pane.py
       - src/operator_console/git_watcher.py
+      - src/operator_console/bootstrap.py
     D11:
       # _put() is a two-line TUI helper (move cursor + write) duplicated in
       # git_watcher and watcher_status_pane. Extracting it to a shared module

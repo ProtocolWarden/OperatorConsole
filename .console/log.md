@@ -217,7 +217,7 @@ _Not a task tracker — that's backlog.md. Keep entries concise and dated._
 
 ## Stop Points
 
-- Wire Custodian B1 privacy block (2026-05-08, on `chore/wire-b1-privacy-block`): Added top-level `privacy:` block to `.custodian/config.yaml` listing `VideoFoundry` and `videofoundry` as banned literals. B1 reports zero leaks on the public surface — defaults exclude operator-private workspaces, history docs, and the config file itself, so the block is purely declarative for now and acts as a forward guard against future leaks.
+- Wire Custodian B1 privacy block (2026-05-08, on `chore/wire-b1-privacy-block`): Added top-level `privacy:` block to `.custodian/config.yaml` listing the private repo name (and its lowercase variant) as banned literals. B1 reports zero leaks on the public surface — defaults exclude operator-private workspaces, history docs, and the config file itself, so the block is purely declarative for now and acts as a forward guard against future leaks.
 
 - CI doctor: drop stale D7 exclude_paths (2026-05-06, on `main`): D7 (dead method param) was retired in Custodian's tool-first deprecation pass. `.custodian/config.yaml` still referenced D7 under exclude_paths, which `custodian-doctor --strict` flagged as an unknown detector. Removed the block.
 
@@ -436,3 +436,7 @@ Created profile yamls for each with lazygit git pane and standard helpers.
 ## 2026-05-27 — Fix: revert shell pane to bash -l (bash --rcfile -i caused stuck pane)
 
 Reverted the shell pane loop back to `while true; do bash -l; sleep 1; done`. The `bash --rcfile file -i` variant caused a stuck blinking cursor — bash with `-i` inside a zellij subshell loop does not present a prompt correctly. The `claude()` re-anchor function only needs to be in the post-claude drop-to-shell (exec bash --rcfile), not the shell pane loop.
+
+## 2026-06-03 — Phase 4 hot-trim: trim log + historical backlog from the compiled context
+
+bootstrap.build_resume_prompt now compiles only the most-recent N log entries (CONSOLE_LOG_RECENT_ENTRIES, default 5) + a pointer, and drops unambiguously-historical/completed backlog sections (Done, Recently Completed, Previously In Progress, Cycle N updates, Archived) — keeping active In Progress/Up Next + any unrecognized section. Source .console/ files are untouched (spec §5: source retained, blob trimmed); non-destructive and reversible. Fleet effect: PlatformManifest 2142→138, OperationsCenter ~3300→686; the heaviest (private) repo ~6000→~800; other repos ≤234. 8 new tests (test_bootstrap_trim.py). Added CONSOLE_LOG_RECENT_ENTRIES to .env.example (E1) and bootstrap.py to C29 exclusions (it sat at the 500 limit). Residual size in the two heaviest repos is un-reconciled ACTIVE backlog + large task/guidelines — that's §7c content reconciliation (and OperationsCenter's .console is live-loop-owned), not a compile fix.
