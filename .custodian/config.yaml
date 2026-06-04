@@ -39,13 +39,21 @@ audit:
   cross_repo:
     platform_manifest_repo: ../PlatformManifest
 
-  # P-class: OperatorConsole → OC queue contract.
-  # OperatorConsole's queue.py writes ~/.console/queue/<uuid>.json;
-  # OC's intake/main.py reads and processes each item.
+  # P-class: OperatorConsole → queue-intake contract (writer side).
+  # OperatorConsole's queue.py writes ~/.console/queue/<uuid>.json; the
+  # downstream intake entrypoint reads and processes each item.
+  #
+  # We intentionally declare only the WRITER side here. P3 (path coverage)
+  # checks reader_path unconditionally and emits a finding when the path
+  # cannot be resolved — and the reader lives in a SIBLING repo that is never
+  # present in this repo's single-repo CI checkout, so a reader_path here is a
+  # structurally guaranteed false positive on CI. P1 (writer keys) and P3's
+  # writer-side path coverage still fully audit our side of the contract.
+  # The cross-repo reader half belongs to the fleet/multi-repo audit (where
+  # both repos coexist), not to OperatorConsole's own CI.
   plumbing:
     - id: queue
       writer_glob: "src/operator_console/queue.py"
-      reader_path: "../OperationsCenter/src/operations_center/entrypoints/intake/main.py"
       written_keys: [id, goal, task_type, repo_name, repo_path, priority, source, submitted_at, lane_hint]
       path_fragment: ".console/queue"
 
