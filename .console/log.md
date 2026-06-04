@@ -1,5 +1,15 @@
 # Log
 
+## 2026-06-04 — Fix custodian-audit E701 findings (CI green)
+
+Expanded 11 single-line `if/elif X: stmt` compound statements in
+watcher_status_pane.py (worker-backend / executor-lane render helpers)
+into multi-line blocks. These were the only remaining custodian-audit
+findings (ruff E701), which kept `custodian-multi --fail-on-findings`
+red on main. Pure formatting, no behavior change. Audit now 0 findings;
+`custodian-doctor --strict` passes (reconcile_enforce now recognized by
+current Custodian main — earlier CI failure was a release-race).
+
 ## 2026-06-04 — Reconcile .console/ (worksheet + prune + enforce)
 
 Authored `.console/reconcile.yaml` (untracked) classifying backlog/log work:

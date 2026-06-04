@@ -1061,8 +1061,10 @@ def _build_sections(
                 used = bu.get(used_key, 0)
                 if limit is not None:
                     ratio = (used / limit) if limit else 0.0
-                    if ratio >= 1: wa = C["ERR"]
-                    elif ratio >= 0.8 and wa is C["RUN"]: wa = C["YLW"]
+                    if ratio >= 1:
+                        wa = C["ERR"]
+                    elif ratio >= 0.8 and wa is C["RUN"]:
+                        wa = C["YLW"]
                     cells.append(f"{abbrev}:{used}/{limit}")
                 elif used:
                     cells.append(f"{abbrev}:{used}/∞")
@@ -1070,19 +1072,24 @@ def _build_sections(
             mc = bc.get("max_concurrent")
             if mc is not None:
                 ratio = (in_flight / mc) if mc else 0.0
-                if ratio >= 1: wa = C["ERR"]
-                elif ratio >= 0.8 and wa is C["RUN"]: wa = C["YLW"]
+                if ratio >= 1:
+                    wa = C["ERR"]
+                elif ratio >= 0.8 and wa is C["RUN"]:
+                    wa = C["YLW"]
                 cells.append(f"F:{in_flight}/{mc}")
             elif in_flight:
                 cells.append(f"F:{in_flight}/∞")
             ram = bc.get("min_available_memory_mb")
             if ram is not None:
-                if mem_avail_mb and mem_avail_mb < ram: wa = C["ERR"]
+                if mem_avail_mb and mem_avail_mb < ram:
+                    wa = C["ERR"]
                 cells.append(f"≥{ram}M")
             row = " ".join(cells) if cells else "—"
             rows.append((f"  {_tc(backend):<14} {row}", wa))
-            if wa is C["ERR"]: worst = C["ERR"]
-            elif wa is C["YLW"] and worst is C["RUN"]: worst = C["YLW"]
+            if wa is C["ERR"]:
+                worst = C["ERR"]
+            elif wa is C["YLW"] and worst is C["RUN"]:
+                worst = C["YLW"]
         return rows, worst
 
     def _model_cooldown_label(backend: str, model: str) -> tuple[str, int]:
@@ -1120,7 +1127,8 @@ def _build_sections(
                 model = models[0] if models else backend
                 label, wa = _model_cooldown_label(backend, model)
                 rows.append((f"  {_tc(backend):<14} {label}", wa))
-                if wa is C["ERR"]: worst = C["ERR"]
+                if wa is C["ERR"]:
+                    worst = C["ERR"]
                 continue
             # Multi-model backend: a header row + one indented row per model so a
             # burnt model-weekly quota never reads as the whole backend being down.
@@ -1149,7 +1157,8 @@ def _build_sections(
                 wa = C["RUN"]
                 cell = "—"
             rows.append((f"  {_tc(backend):<14} {cell}", wa))
-            if wa is C["ERR"]: worst = C["ERR"]
+            if wa is C["ERR"]:
+                worst = C["ERR"]
         return rows, worst
 
     all_known = set(caps) | set(usage)
@@ -1182,11 +1191,13 @@ def _build_sections(
         if remote_keys:
             rows, w = _render_remote_worker_rows(remote_keys)
             wb_lines.extend(rows)
-            if w is C["ERR"]: wb_worst = C["ERR"]
+            if w is C["ERR"]:
+                wb_worst = C["ERR"]
         if local_keys:
             rows, w = _render_local_worker_rows(local_keys)
             wb_lines.extend(rows)
-            if w is C["ERR"]: wb_worst = C["ERR"]
+            if w is C["ERR"]:
+                wb_worst = C["ERR"]
         sections.append({"id": "worker_backends", "lines": [
             (" Worker Backends", wb_worst | curses.A_BOLD),
             *wb_lines,
