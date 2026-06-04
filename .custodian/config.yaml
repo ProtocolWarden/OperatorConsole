@@ -23,6 +23,10 @@ tests_root: tests
 # across Python commands and shell tools. See .custodian/detectors.py.
 
 audit:
+  # Opt-in to the reconcile detectors (R1 over-budget advisory, R2 scrub-target
+  # leak fail-closed) now that this repo's .console/ has been reconciled.
+  reconcile_enforce: true
+
   cross_repo:
     platform_manifest_repo: ../PlatformManifest
 

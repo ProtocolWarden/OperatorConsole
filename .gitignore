@@ -7,6 +7,9 @@ __pycache__/
 !.console/backlog.md
 !.console/guidelines.md
 !.console/log.md
+# Reconciliation worksheet + local prune staging (never tracked)
+/.console/reconcile.yaml
+/.console/archive/
 CLAUDE.md
 .custodian/tmp*.yaml
 
