@@ -145,3 +145,7 @@ common_words += git_watcher (subcommand name, not a Python symbol).
 
 _Archived completed history → `/home/dev/Documents/GitHub/PrivateManifest/archive/console/OperatorConsole/log-2026-06-04.md`_
 
+## 2026-06-08 — fix(status-pane): Claude weekly cooldown covers Haiku
+
+Worker Backend rendering now prioritizes account-wide Claude Code cooldowns and
+normalizes matching Sonnet/Opus weekly cooldowns so Haiku is not shown runnable.

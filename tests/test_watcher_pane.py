@@ -92,6 +92,136 @@ class TestCursesPaneCollectors:
         monkeypatch.setattr(wsp, "_USAGE_PATH", tmp_path / "missing.json")
         assert wsp._backend_usage() == {}
 
+    def test_worker_backend_global_weekly_cools_all_claude_models(
+        self, tmp_path, monkeypatch,
+    ):
+        from operator_console import watcher_status_pane as wsp
+
+        usage_path = tmp_path / "usage.json"
+        reset_at = datetime.now(timezone.utc) + timedelta(days=2)
+        usage_path.write_text(json.dumps({
+            "events": [
+                {
+                    "kind": "worker_backend_cooldown",
+                    "worker_backend": "claude_code",
+                    "limit_kind": "model_weekly",
+                    "model": "sonnet",
+                    "reset_at": reset_at.isoformat(),
+                },
+                {
+                    "kind": "worker_backend_cooldown",
+                    "worker_backend": "claude_code",
+                    "limit_kind": "global_weekly",
+                    "model": None,
+                    "reset_at": reset_at.isoformat(),
+                },
+            ],
+        }))
+        controller_state_path = tmp_path / "controller_state.json"
+        controller_state_path.write_text(json.dumps({
+            "backend_cooldowns": {
+                "claude": reset_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+            "backend_limit_kinds": {
+                "claude": {
+                    "limit_kind": "model_weekly",
+                    "model": "sonnet",
+                    "reset_at": reset_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            },
+        }))
+        monkeypatch.setattr(wsp, "_USAGE_PATH", usage_path)
+        monkeypatch.setattr(wsp, "_CONTROLLER_STATE_PATH", controller_state_path)
+
+        colors = {
+            "SEL": 1,
+            "RUN": 2,
+            "YLW": 3,
+            "ERR": 4,
+            "HEAD": 5,
+            "DIM": 6,
+            "MUTED": 7,
+        }
+        data = {
+            "roles": {role: {"alive": True, "pid": "1"} for role in wsp._ROLES},
+            "restarts": {},
+            "sb": True,
+            "queue": [],
+            "resources": {"mem_total_gb": 32, "mem_used_gb": 8},
+            "backend_caps": {},
+            "backend_usage": {},
+            "resource_gate": {},
+            "ctrl_state": {},
+        }
+
+        sections, _ = wsp._build_sections(data, sel=0, w=100, C=colors)
+        worker = next(section for section in sections if section["id"] == "worker_backends")
+        lines = [text for text, _ in worker["lines"]]
+
+        assert any("sonnet" in line and "acct-weekly" in line for line in lines)
+        assert any("opus" in line and "acct-weekly" in line for line in lines)
+        assert any("haiku" in line and "acct-weekly" in line for line in lines)
+
+    def test_matching_sonnet_opus_weekly_state_cools_haiku(
+        self, tmp_path, monkeypatch,
+    ):
+        from operator_console import watcher_status_pane as wsp
+
+        usage_path = tmp_path / "usage.json"
+        usage_path.write_text(json.dumps({"events": []}))
+        reset_at = datetime.now(timezone.utc) + timedelta(days=2)
+        reset_z = reset_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        controller_state_path = tmp_path / "controller_state.json"
+        controller_state_path.write_text(json.dumps({
+            "backend_cooldowns": {
+                "claude": reset_z,
+                "opus": reset_z,
+            },
+            "backend_limit_kinds": {
+                "claude": {
+                    "limit_kind": "model_weekly",
+                    "model": "sonnet",
+                    "reset_at": reset_z,
+                },
+                "opus": {
+                    "limit_kind": "model_weekly",
+                    "model": "opus",
+                    "reset_at": reset_z,
+                },
+            },
+        }))
+        monkeypatch.setattr(wsp, "_USAGE_PATH", usage_path)
+        monkeypatch.setattr(wsp, "_CONTROLLER_STATE_PATH", controller_state_path)
+
+        colors = {
+            "SEL": 1,
+            "RUN": 2,
+            "YLW": 3,
+            "ERR": 4,
+            "HEAD": 5,
+            "DIM": 6,
+            "MUTED": 7,
+        }
+        data = {
+            "roles": {role: {"alive": True, "pid": "1"} for role in wsp._ROLES},
+            "restarts": {},
+            "sb": True,
+            "queue": [],
+            "resources": {"mem_total_gb": 32, "mem_used_gb": 8},
+            "backend_caps": {},
+            "backend_usage": {},
+            "resource_gate": {},
+            "ctrl_state": {},
+        }
+
+        sections, _ = wsp._build_sections(data, sel=0, w=100, C=colors)
+        worker = next(section for section in sections if section["id"] == "worker_backends")
+        lines = [text for text, _ in worker["lines"]]
+
+        assert any("sonnet" in line and "acct-weekly" in line for line in lines)
+        assert any("opus" in line and "acct-weekly" in line for line in lines)
+        assert any("haiku" in line and "acct-weekly" in line for line in lines)
+
     def test_resource_gate_parses_block(self, tmp_path, monkeypatch):
         from operator_console import watcher_status_pane as wsp
         cfg = tmp_path / "operations_center.local.yaml"

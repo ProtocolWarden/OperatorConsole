@@ -1002,6 +1002,16 @@ def _build_sections(
     _model_cd: dict[tuple[str, str], tuple[str, str | None]] = {}
     _ctrl_runnable: str | None = None
 
+    def _cooldown_kind_priority(_kind: str | None) -> int:
+        return 1 if _kind in _ACCOUNT_WIDE_KINDS or _kind is None else 0
+
+    def _cooldown_reset_key(_iso: str) -> float:
+        try:
+            from datetime import datetime as _dt
+            return _dt.fromisoformat(_iso.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return 0.0
+
     def _note_model_cd(_wb: str, _model: str | None, _iso: str, _kind: str | None) -> None:
         if not _wb or not _iso:
             return
@@ -1013,7 +1023,16 @@ def _build_sections(
         for _m in models:
             _key = (_wb, _m)
             _prev = _model_cd.get(_key)
-            if _prev is None or _iso > _prev[0]:
+            _reset_key = _cooldown_reset_key(_iso)
+            _prev_reset_key = _cooldown_reset_key(_prev[0]) if _prev is not None else None
+            if (
+                _prev is None
+                or _reset_key > _prev_reset_key
+                or (
+                    _reset_key == _prev_reset_key
+                    and _cooldown_kind_priority(_kind) > _cooldown_kind_priority(_prev[1])
+                )
+            ):
                 _model_cd[_key] = (_iso, _kind)
 
     # Read controller state for remote worker cooldowns (per model).
@@ -1047,6 +1066,22 @@ def _build_sections(
             _note_model_cd(_wb, _ev.get("model"), _rat, _ev.get("limit_kind"))
     except Exception:
         pass
+
+    # Defensive normalization for older controller/ledger state: Claude Code's
+    # bare weekly pool is account-wide, but earlier controller versions recorded
+    # matching Sonnet+Opus cooldowns as separate model_weekly entries. If both
+    # premium Claude lanes are cooled to the same instant, do not leave Haiku
+    # green in the status pane.
+    _sonnet_cd = _model_cd.get(("claude_code", "sonnet"))
+    _opus_cd = _model_cd.get(("claude_code", "opus"))
+    if (
+        _sonnet_cd
+        and _opus_cd
+        and _sonnet_cd[1] == "model_weekly"
+        and _opus_cd[1] == "model_weekly"
+        and _cooldown_reset_key(_sonnet_cd[0]) == _cooldown_reset_key(_opus_cd[0])
+    ):
+        _note_model_cd("claude_code", None, _sonnet_cd[0], "global_weekly")
 
     def _render_executor_rows(keys: list[str], global_cap: dict) -> tuple[list[tuple[str, int]], int]:
         rows: list[tuple[str, int]] = []
