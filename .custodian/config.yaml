@@ -27,14 +27,21 @@ audit:
   # leak fail-closed) now that this repo's .console/ has been reconciled.
   reconcile_enforce: true
 
+  # CAP1 — enforce that capabilities owned by OperatorConsole (context_bootstrap)
+  # resolve here. Registry is located via the existing cross_repo sibling below.
+  capabilities:
+    enforce: true
+
   # The deployed Custodian reconcile detector reads `reconcile_enforce`, but its
   # doctor `--strict` typo-guard allow-list lags one release behind and does not
   # yet list the key — so it emits "unknown audit key 'reconcile_enforce'" and
   # fails CI. Declaring it here via the supported plugin_audit_keys escape hatch
   # whitelists the key for the typo-guard while leaving enforcement fully active.
-  # Can be dropped once the released doctor adds reconcile_enforce to its set.
+  # `capabilities` is whitelisted for the same lagging-doctor reason.
+  # Can be dropped once the released doctor adds these keys to its set.
   plugin_audit_keys:
     - reconcile_enforce
+    - capabilities
 
   cross_repo:
     platform_manifest_repo: ../PlatformManifest

@@ -1,5 +1,15 @@
 # Log
 
+## 2026-06-16 — Opt into CAP1 enforcement (context_bootstrap)
+
+Added `audit.capabilities.enforce: true` so Custodian's CAP1 verifies the
+capability OperatorConsole owns (`context_bootstrap` →
+`operator_console.bootstrap.build_resume_prompt`) resolves here. Registry located
+via the existing `cross_repo.platform_manifest_repo` sibling; `capabilities` also
+whitelisted in `plugin_audit_keys` for the lagging-doctor typo-guard. Enforced by
+PlatformManifest's capability-refs gate (OperatorConsole added to its owning set)
++ pre-push.
+
 ## 2026-06-16 — feat: Fleet Capabilities section in startup context (capability plane Phase 1)
 
 First consumer of the capability registry. `build_resume_prompt` now appends a
