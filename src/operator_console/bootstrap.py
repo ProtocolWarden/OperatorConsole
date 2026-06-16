@@ -10,6 +10,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 # Ordered sections in the context — label maps to filename
 CONTEXT_SECTIONS = [
     ("task.md",   "Task"),
@@ -17,6 +19,17 @@ CONTEXT_SECTIONS = [
     ("backlog.md",    "Backlog"),
     ("log.md",   "Log"),
 ]
+
+# Capability registry (read-model) — the fleet's "what can it DO" catalog lives
+# in PlatformManifest. The console surfaces it into startup context so an
+# operator/agent sees the fleet's owned capabilities before acting. We read the
+# flat authoring YAML DIRECTLY (PyYAML, no platform_manifest/repograph import) —
+# the file carries owner_repo_id / target_scope / risk / routing.preferred_lane
+# as authored fields, so no graph compile is needed. Located relative to the
+# anchored repo: the repo itself when anchored at PlatformManifest, else a
+# sibling PlatformManifest checkout. Read-only legibility; never executes.
+_CAPABILITIES_REL = Path("src/platform_manifest/data/capabilities.yaml")
+_PLATFORM_MANIFEST_DIRNAME = "PlatformManifest"
 
 # Hot-trim (tiered-memory spec §5): the log grows without bound, so compiling it
 # whole bloats the always-loaded startup blob (seen at 3k–6k lines in active
@@ -105,6 +118,87 @@ def _get_branch(repo_root: Path) -> str:
         return "unknown"
 
 
+def _find_capabilities_file(repo_root: Path) -> Path | None:
+    """Locate the capability registry YAML. Anchored at PlatformManifest the file
+    is in-repo; anchored elsewhere look for a sibling PlatformManifest checkout.
+    Returns None when neither exists (fail-soft)."""
+    for path in (
+        repo_root / _CAPABILITIES_REL,
+        repo_root.parent / _PLATFORM_MANIFEST_DIRNAME / _CAPABILITIES_REL,
+    ):
+        if path.is_file():
+            return path
+    return None
+
+
+def _format_capability_scope(scope: dict) -> str:
+    """Render a capability target_scope trichotomy compactly (repo / repo_set /
+    fleet) — mirrors the registry's locked target_scope contract."""
+    kind = (scope or {}).get("kind", "?")
+    if kind == "repo":
+        return f"repo({scope.get('repo_id', '?')})"
+    if kind == "repo_set":
+        sel = scope.get("selector") or {}
+        inner = ", ".join(f"{k}={v}" for k, v in sorted(sel.items())) or "*"
+        return f"repo_set({inner})"
+    return str(kind)  # fleet (or unknown) — no id/selector by contract
+
+
+def _render_capabilities_section(repo_root: Path) -> str | None:
+    """Compile the PUBLIC capability catalog into a context section, grouped by
+    owning repo. Fail-soft: any missing file / parse error / unexpected shape
+    returns None so context compilation is never blocked.
+
+    Format contract (stable — tests rely on it):
+        ## Fleet Capabilities
+
+        _What the fleet can do ..._
+
+        **<owner_repo_id>**
+        - <Name> — <scope> · <risk>[ · lane: <lane>]
+    """
+    path = _find_capabilities_file(repo_root)
+    if path is None:
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        caps = data.get("capabilities") or []
+        if not isinstance(caps, list):
+            return None
+    except Exception:
+        return None
+
+    by_owner: dict[str, list[str]] = {}
+    for cap in caps:
+        if not isinstance(cap, dict):
+            continue
+        if cap.get("visibility", "public") != "public":
+            continue  # never surface private capabilities in console context
+        owner = cap.get("owner_repo_id", "unknown")
+        name = cap.get("name") or cap.get("action_id") or "unnamed"
+        scope = _format_capability_scope(cap.get("target_scope") or {})
+        risk = cap.get("risk", "unknown")
+        lane = (cap.get("routing") or {}).get("preferred_lane")
+        line = f"- {name} — {scope} · {risk}"
+        if lane:
+            line += f" · lane: {lane}"
+        by_owner.setdefault(owner, []).append(line)
+
+    if not by_owner:
+        return None
+
+    blocks = [
+        "**{}**\n{}".format(owner, "\n".join(sorted(by_owner[owner])))
+        for owner in sorted(by_owner)
+    ]
+    return (
+        "## Fleet Capabilities\n\n"
+        "_What the fleet can do — read-model, CAP1-enforced. "
+        "Source: PlatformManifest capabilities.yaml. Read-only legibility._\n\n"
+        + "\n\n".join(blocks)
+    )
+
+
 def build_resume_prompt(
     repo_root: Path,
     files: list[str] | None = None,
@@ -130,6 +224,10 @@ def build_resume_prompt(
                 content = _trim_backlog(content).strip()
             if content:
                 sections.append(f"## {label}\n\n{content}")
+
+    caps_section = _render_capabilities_section(repo_root)
+    if caps_section:
+        sections.append(caps_section)
 
     if peer_roots:
         for peer_name, peer_root in peer_roots:

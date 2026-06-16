@@ -1,5 +1,19 @@
 # Log
 
+## 2026-06-16 — feat: Fleet Capabilities section in startup context (capability plane Phase 1)
+
+First consumer of the capability registry. `build_resume_prompt` now appends a
+**Fleet Capabilities** section to the compiled `.console/.context`, so an
+operator/agent sees what the fleet can do (owner, scope, risk, lane) before
+acting. Reads PlatformManifest's `capabilities.yaml` **directly via PyYAML** —
+no `platform_manifest`/`repograph` import, no RepoGraph compile — because the
+flat authoring YAML already carries owner_repo_id/target_scope/risk/routing as
+fields. Located in-repo when anchored at PlatformManifest, else a sibling
+PlatformManifest checkout. Fail-soft: missing/malformed registry → section
+omitted, context compilation never blocked. Private (`visibility != public`)
+capabilities are never surfaced. This is the read-model legibility consumer the
+plane was built for; routing stays descriptive (no execution wiring).
+
 ## 2026-06-15 — chore: cwd-safe ContextGuard hook command
 
 Hardened `.claude/settings.json` hook commands to
